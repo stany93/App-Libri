@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scanner Libri</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center p-6">
+
+    <main class="w-full max-w-md bg-white rounded-2xl shadow-md p-6 text-center mt-10">
+        <h1 class="text-2xl font-bold text-gray-800 mb-2">Aggiungi un Libro</h1>
+        <p class="text-sm text-gray-500 mb-6">Scatta una foto alla copertina per estrapolare i dati automaticamente</p>
+
+        <label class="cursor-pointer block bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-6 rounded-xl shadow transition duration-200">
+            📸 Scatta Foto Copertina
+            <input type="file" accept="image/*" capture="environment" id="foto-copertina" class="hidden">
+        </label>
+
+        <div id="zona-anteprima" class="mt-6 hidden">
+            <p class="text-xs text-gray-400 mb-2">Immagine catturata:</p>
+            <img id="anteprima-immagine" class="w-full max-h-64 object-cover rounded-lg border border-gray-200 shadow-sm" src="#" alt="Anteprima">
+        </div>
+    </main>
+
+    <script>
+        // Logica per gestire la fotocamera del telefono
+        const inputFoto = document.getElementById('foto-copertina');
+        const zonaAnteprima = document.getElementById('zona-anteprima');
+        const anteprimaImmagine = document.getElementById('anteprima-immagine');
+
+        inputFoto.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                // Genera un URL temporaneo della foto per mostrarla sullo schermo
+                anteprimaImmagine.src = URL.createObjectURL(file);
+                // Rende visibile il riquadro dell'anteprima
+                zonaAnteprima.classList.remove('hidden');
+                console.
