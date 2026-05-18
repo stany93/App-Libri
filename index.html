@@ -51,7 +51,7 @@
         </div>
 
         <div id="zona-risultato" class="mt-6 text-left bg-gray-50 p-4 rounded-xl border border-gray-100 hidden">
-            <span class="text-xs font-bold uppercase tracking-wide text-green-600 block mb-1">✅ Salvato in Firestore!</span>
+            <span id="badge-stato" class="text-xs font-bold uppercase tracking-wide text-green-600 block mb-1">✅ Salvato in Firestore!</span>
             <h3 id="res-titolo" class="font-bold text-gray-800 text-lg"></h3>
             <p id="res-autore" class="text-sm text-gray-600 mb-2"></p>
             <p id="res-isbn" class="text-xs text-blue-500 font-mono mb-2"></p>
@@ -83,6 +83,7 @@
         const zonaRisultato = document.getElementById('zona-risultato');
         const statoCaricamento = document.getElementById('stato-caricamento');
         const testoStato = document.getElementById('testo-stato');
+        const badgeStato = document.getElementById('badge-stato');
 
         let isScanning = false;
 
@@ -91,26 +92,36 @@
             zonaRisultato.classList.add('hidden');
             testoStato.innerText = "Ricerca dettagli del libro...";
 
+            let libroDaSalvare = {
+                titolo: "Titolo da verificare",
+                autore: "Autore sconosciuto",
+                trama: "Codice scannerizzato ma non trovato online. Puoi modificare i dettagli in un secondo momento.",
+                isbn: isIsbn ? query : "Non disponibile",
+                dataInserimento: new Date()
+            };
+
             try {
                 const urlApi = isIsbn ? `https://www.googleapis.com/books/v1/volumes?q=isbn:${query}` : `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=1`;
                 const rispostaApi = await fetch(urlApi);
                 const datiApi = await rispostaApi.json();
 
-                if (!datiApi.items || datiApi.items.length === 0) {
-                    throw new Error(isIsbn ? `Codice letto (${query}) non presente nel database. Prova a cercare il titolo a mano.` : "Nessun libro trovato con questo nome.");
+                // Se troviamo il libro online, sovrascriviamo i dati provvisori con quelli reali
+                if (datiApi.items && datiApi.items.length > 0) {
+                    const volumeInfo = datiApi.items[0].volumeInfo;
+                    const identificatori = volumeInfo.industryIdentifiers;
+                    
+                    libroDaSalvare.titolo = volumeInfo.title || "Titolo Sconosciuto";
+                    libroDaSalvare.autore = volumeInfo.authors ? volumeInfo.authors[0] : "Autore Sconosciuto";
+                    libroDaSalvare.trama = volumeInfo.description || "Nessuna trama disponibile.";
+                    if (identificatori) libroDaSalvare.isbn = identificatori[0].identifier;
+                    badgeStato.innerText = "✅ Salvato da Google Books!";
+                    badgeStato.className = "text-xs font-bold uppercase tracking-wide text-green-600 block mb-1";
+                } else {
+                    // Fallback se l'API non ha risultati
+                    if (!isIsbn) throw new Error("Nessun libro trovato con questo nome.");
+                    badgeStato.innerText = "⚠️ Salvato solo codice ISBN (Non trovato online)";
+                    badgeStato.className = "text-xs font-bold uppercase tracking-wide text-orange-600 block mb-1";
                 }
-
-                const volumeInfo = datiApi.items[0].volumeInfo;
-                const identificatori = volumeInfo.industryIdentifiers;
-                const isbnTrovato = identificatori ? identificatori[0].identifier : query;
-
-                const libroDaSalvare = {
-                    titolo: volumeInfo.title || "Titolo Sconosciuto",
-                    autore: volumeInfo.authors ? volumeInfo.authors[0] : "Autore Sconosciuto",
-                    trama: volumeInfo.description || "Nessuna trama disponibile.",
-                    isbn: isbnTrovato,
-                    dataInserimento: new Date()
-                };
 
                 testoStato.innerText = "Salvataggio nel tuo archivio...";
                 await addDoc(collection(db, "libri"), libroDaSalvare);
@@ -179,14 +190,12 @@
             }
         });
 
-        // Gestione rilevamento codice con un pizzico di tolleranza
         let lastCode = null;
         let count = 0;
         Quagga.onDetected(function(risultato) {
             if (risultato && risultato.codeResult) {
                 const codiceIsbn = risultato.codeResult.code;
                 
-                // Per evitare letture errate fulminee, verifichiamo che legga lo stesso codice almeno 2 volte di fila
                 if (codiceIsbn === lastCode) {
                     count++;
                     if (count >= 2) {
@@ -202,7 +211,6 @@
             }
         });
 
-        // Cerca a mano
         btnRicerca.addEventListener('click', function() {
             const testoCercato = inputRicerca.value.trim();
             if (testoCercato.length > 2) {
