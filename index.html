@@ -3,18 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Scanner Libri</title>
+    <title>Scanner Libri (ISBN)</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <script src="https://unpkg.com/tesseract.js@5.0.5/dist/tesseract.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2/dist/quagga.min.js"></script>
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col items-center p-6">
 
     <main class="w-full max-w-md bg-white rounded-2xl shadow-md p-6 text-center mt-10">
         <h1 class="text-2xl font-bold text-gray-800 mb-2">Aggiungi un Libro</h1>
-        <p class="text-sm text-gray-500 mb-6">Scatta una foto alla copertina per estrapolare i dati automaticamente</p>
+        <p class="text-sm text-gray-500 mb-6">Gira il libro e **fotografa il codice a barre sul retro** per salvarlo</p>
 
         <label class="cursor-pointer block bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-6 rounded-xl shadow transition duration-200">
-            📸 Scatta Foto Copertina
+            📸 Fotografa Codice a Barre
             <input type="file" accept="image/*" capture="environment" id="foto-copertina" class="hidden">
         </label>
 
@@ -30,6 +30,7 @@
                 <span class="text-xs font-bold uppercase tracking-wide text-green-600">Salvato in Firestore!</span>
                 <h3 id="res-titolo" class="font-bold text-gray-800 text-lg mt-1"></h3>
                 <p id="res-autore" class="text-sm text-gray-600 mb-2"></p>
+                <p id="res-isbn" class="text-xs text-blue-500 font-mono mb-2"></p>
                 <p id="res-trama" class="text-xs text-gray-500 line-clamp-5"></p>
             </div>
         </div>
@@ -39,7 +40,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        // Le tue chiavi reali verificate
+        // Configurazione Firebase verificata
         const firebaseConfig = {
             apiKey: "AIzaSyARnpN14sxR2I9mEsoHq1tmG8EIrqm_QPY",
             authDomain: "app-libri-35839.firebaseapp.com",
@@ -63,67 +64,76 @@
         inputFoto.addEventListener('change', async function(e) {
             const file = e.target.files[0];
             if (file) {
-                // Prepara la UI
-                anteprimaImmagine.src = URL.createObjectURL(file);
+                // Imposta la UI
+                const urlImmagine = URL.createObjectURL(file);
+                anteprimaImmagine.src = urlImmagine;
                 zonaAnteprima.classList.remove('hidden');
                 statoCaricamento.classList.remove('hidden');
                 infoLibro.classList.add('hidden');
 
                 try {
-                    // FASE 1: Lettura del testo con Tesseract OCR
-                    testoStato.innerText = "Lettura del testo sulla copertina (OCR)...";
-                    const worker = await Tesseract.createWorker('ita'); // Lingua italiana
-                    const ret = await worker.recognize(file);
-                    const testoEstratto = ret.data.text.trim();
-                    await worker.terminate();
+                    testoStato.innerText = "Analisi del codice a barre (ISBN)...";
 
-                    if (!testoEstratto || testoEstratto.length < 3) {
-                        throw new Error("Non sono riuscito a leggere del testo chiaro sulla copertina.");
-                    }
+                    // FASE 1: Lettura del Codice a barre con Quagga
+                    Quagga.decodeSingle({
+                        decoder: {
+                            readers: ["ean_reader", "ean_8_reader"] // I formati standard dei libri (EAN-13)
+                        },
+                        locate: true,
+                        src: urlImmagine
+                    }, async function(risultato) {
+                        try {
+                            if (!risultato || !risultato.codeResult) {
+                                throw new Error("Codice a barre non rilevato. Riprova tenendo la foto dritta, ferma e vicina.");
+                            }
 
-                    console.log("Testo letto dall'OCR:", testoEstratto);
+                            const isbn = risultato.codeResult.code;
+                            console.log("ISBN rilevato:", isbn);
 
-                    // FASE 2: Ricerca su Google Books API usando il testo trovato
-                    testoStato.innerText = "Ricerca del libro nel database mondiale...";
-                    // Puliamo il testo eliminando i ritorni a capo per fare una query pulita
-                    const queryPulita = testoEstratto.replace(/\n/g, ' ');
-                    const urlApi = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryPulita)}&maxResults=1`;
-                    
-                    const rispostaApi = await fetch(urlApi);
-                    const datiApi = await rispostaApi.json();
+                            // FASE 2: Ricerca su Google Books tramite il codice ISBN appena letto
+                            testoStato.innerText = "Codice trovato! Ricerca dettagli libro...";
+                            const urlApi = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`;
+                            
+                            const rispostaApi = await fetch(urlApi);
+                            const datiApi = await rispostaApi.json();
 
-                    if (!datiApi.items || datiApi.items.length === 0) {
-                        throw new Error("Nessun libro trovato corrispondente al testo letto.");
-                    }
+                            if (!datiApi.items || datiApi.items.length === 0) {
+                                throw new Error(`Codice letto (${isbn}), ma nessun libro trovato nel database globale.`);
+                            }
 
-                    // Estraiamo le info del primo libro trovato
-                    const volumeInfo = datiApi.items[0].volumeInfo;
-                    
-                    const libroDaSalvare = {
-                        titolo: volumeInfo.title || "Titolo Sconosciuto",
-                        autore: volumeInfo.authors ? volumeInfo.authors[0] : "Autore Sconosciuto",
-                        trama: volumeInfo.description || "Nessuna trama disponibile.",
-                        dataInserimento: new Date(),
-                        testoOcrOriginale: testoEstratto // Teniamo traccia di cosa aveva letto l'app
-                    };
+                            const volumeInfo = datiApi.items[0].volumeInfo;
+                            
+                            const libroDaSalvare = {
+                                titolo: volumeInfo.title || "Titolo Sconosciuto",
+                                autore: volumeInfo.authors ? volumeInfo.authors[0] : "Autore Sconosciuto",
+                                trama: volumeInfo.description || "Nessuna trama disponibile.",
+                                isbn: isbn,
+                                dataInserimento: new Date()
+                            };
 
-                    // FASE 3: Salvataggio su Firestore
-                    testoStato.innerText = "Salvataggio del libro nel tuo archivio...";
-                    const docRef = await addDoc(collection(db, "libri"), libroDaSalvare);
-                    console.log("Libro reale salvato con ID: ", docRef.id);
+                            // FASE 3: Salvataggio su Firestore
+                            testoStato.innerText = "Salvataggio nel tuo database...";
+                            const docRef = await addDoc(collection(db, "libri"), libroDaSalvare);
+                            console.log("Libro salvato con successo! ID: ", docRef.id);
 
-                    // Mostriamo i dati reali recuperati sullo schermo
-                    document.getElementById('res-titolo').innerText = libroDaSalvare.titolo;
-                    document.getElementById('res-autore').innerText = libroDaSalvare.autore;
-                    document.getElementById('res-trama').innerText = libroDaSalvare.trama;
-                    
-                    statoCaricamento.classList.add('hidden');
-                    infoLibro.classList.remove('hidden');
+                            // Mostriamo i dati reali recuperati sullo schermo
+                            document.getElementById('res-titolo').innerText = libroDaSalvare.titolo;
+                            document.getElementById('res-autore').innerText = libroDaSalvare.autore;
+                            document.getElementById('res-isbn').innerText = "ISBN: " + libroDaSalvare.isbn;
+                            document.getElementById('res-trama').innerText = libroDaSalvare.trama;
+                            
+                            statoCaricamento.classList.add('hidden');
+                            infoLibro.classList.remove('hidden');
+
+                        } catch (err) {
+                            console.error(err);
+                            testoStato.innerText = "❌ " + err.message;
+                        }
+                    });
 
                 } catch (error) {
-                    console.error("Errore nel flusso:", error);
-                    testoStato.innerText = "❌ Errore: " + error.message;
-                    // Se fallisce l'OCR, diamo comunque la possibilità di vedere che ha fallito
+                    console.error("Errore generale:", error);
+                    testoStato.innerText = "❌ Errore durante l'elaborazione.";
                 }
             }
         });
