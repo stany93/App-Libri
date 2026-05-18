@@ -384,4 +384,16 @@
             }
         });
 
-        btn
+        btnRicerca.addEventListener('click', function() {
+            const testoCercato = inputRicerca.value.trim();
+            if (testoCercato.length > 2) {
+                if (isScanning) stopScanner();
+                preparaConfermaLibro(testoCercato, false);
+            }
+        });
+
+        inputRicerca.addEventListener('keypress', (e) => { if (e.key === 'Enter') btnRicerca.click(); });
+    </script>
+</body>
+</html>
+
