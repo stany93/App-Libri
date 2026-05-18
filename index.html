@@ -37,9 +37,9 @@
                 </div>
 
                 <div class="flex flex-col gap-2 text-left mb-4">
-                    <label class="text-xs font-bold text-gray-500 uppercase">Ricerca Manuale (Titolo o ISBN con/senza trattini)</label>
+                    <label class="text-xs font-bold text-gray-500 uppercase">Ricerca Manuale (Titolo o ISBN)</label>
                     <div class="flex gap-2">
-                        <input type="text" id="input-ricerca" placeholder="Es. 978-88-301-..." class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 text-sm">
+                        <input type="text" id="input-ricerca" placeholder="Es. 9788817073509" class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 text-sm">
                         <button id="btn-ricerca" class="bg-gray-800 hover:bg-gray-900 text-white px-5 rounded-xl font-medium text-sm transition">Cerca</button>
                     </div>
                 </div>
@@ -158,80 +158,108 @@
             }
         }
 
-        function formattaConTrattini(isbn) {
-            let p = isbn.replace(/[-\s]/g, '');
-            if (p.length === 13) {
-                return `${p.substring(0,3)}-${p.substring(3,5)}-${p.substring(5,8)}-${p.substring(8,12)}-${p.substring(12,13)}`;
-            }
-            return isbn;
-        }
-
-        // --- SISTEMA DI RICERCA OTTIMIZZATO ---
+        // --- SISTEMA DI RICERCA PURO (NO PROXY, NO HARDCODE, NO TRATTINI) ---
         async function preparaConfermaLibro(queryCercata, isIsbn = false) {
             statoCaricamento.classList.remove('hidden');
-            testoStato.innerText = "Ricerca dettagli libro...";
+            testoStato.innerText = "Ricerca nei database letterari...";
 
-            const queryPulita = queryCercata.toString().trim().replace(/[-\s]/g, '');
-            const queryConTrattini = queryCercata.toString().includes('-') ? queryCercata.trim() : formattaConTrattini(queryPulita);
+            // Pulizia estrema: togliamo TUTTI i trattini e spazi per mandare solo il numero alle API
+            const queryPulita = queryCercata.toString().replace(/[-\s]/g, '').trim();
 
-            // Valori iniziali di paracadute
             libroInSospeso = {
                 titolo: "Titolo da verificare",
                 autore: "Autore sconosciuto",
                 trama: "",
-                isbn: isIsbn || !isNaN(queryPulita) ? queryConTrattini : "Non disponibile",
-                copertinaUrl: `https://covers.openlibrary.org/b/isbn/${queryPulita}-M.jpg`,
+                isbn: queryCercata, // Salviamo quello che hai scritto tu come riferimento
+                copertinaUrl: "",
                 stato: "Da leggere",
                 riflessioni: ""
             };
 
-            // Protezione Hardcode 1: Io, Ibra
-            if (queryPulita === "9788817052733") {
-                libroInSospeso.titolo = "Io, Ibra";
-                libroInSospeso.autore = "Zlatan Ibrahimović";
-                mostraSchermataConferma();
-                return;
-            }
-
-            // Protezione Hardcode 2: Red
-            if (queryPulita === "9788820082437") {
-                libroInSospeso.titolo = "Red. Colpo di fulmine";
-                libroInSospeso.autore = "Stefania S.";
-                mostraSchermataConferma();
-                return;
-            }
-
-            // Protezione Hardcode 3: L'anomalia (Bompiani)
-            if (queryPulita === "9788830110519") {
-                libroInSospeso.titolo = "L'anomalia";
-                libroInSospeso.autore = "Hervé Le Tellier";
-                mostraSchermataConferma();
-                return;
-            }
-
             try {
-                let url = "";
+                let datiVolume = null;
+                let imageUrl = "";
+
                 if (isIsbn || !isNaN(queryPulita)) {
-                    url = `https://www.googleapis.com/books/v1/volumes?q=isbn:${queryPulita}`;
+                    // TENTATIVO 1: Ricerca Testuale Generale su Google Books (Migliore per libri italiani)
+                    if (!datiVolume) {
+                        try {
+                            let res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${queryPulita}&maxResults=1`);
+                            if (res.ok) {
+                                let json = await res.json();
+                                if (json.items && json.items.length > 0) datiVolume = json.items[0].volumeInfo;
+                            }
+                        } catch (e) { console.error("Errore Google Books 1:", e); }
+                    }
+
+                    // TENTATIVO 2: Ricerca specifica per parametro ISBN su Google Books
+                    if (!datiVolume) {
+                        try {
+                            let res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${queryPulita}`);
+                            if (res.ok) {
+                                let json = await res.json();
+                                if (json.items && json.items.length > 0) datiVolume = json.items[0].volumeInfo;
+                            }
+                        } catch (e) { console.error("Errore Google Books 2:", e); }
+                    }
+
+                    // TENTATIVO 3: Open Library API Pubblica
+                    if (!datiVolume) {
+                        try {
+                            let res = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${queryPulita}&format=json&jscmd=data`);
+                            if (res.ok) {
+                                let json = await res.json();
+                                let chiave = `ISBN:${queryPulita}`;
+                                if (json[chiave]) {
+                                    const olData = json[chiave];
+                                    libroInSospeso.titolo = olData.title || "Titolo Sconosciuto";
+                                    libroInSospeso.autore = (olData.authors && olData.authors.length > 0) ? olData.authors[0].name : "Autore Sconosciuto";
+                                    if (olData.cover && olData.cover.medium) imageUrl = olData.cover.medium;
+                                    datiVolume = "Trovato_OL"; // Flag per saltare il blocco di Google
+                                }
+                            }
+                        } catch (e) { console.error("Errore Open Library:", e); }
+                    }
+
                 } else {
-                    url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryCercata)}&maxResults=1`;
+                    // Ricerca manuale per Nome Libro o Autore
+                    try {
+                        let res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryCercata)}&maxResults=1`);
+                        if (res.ok) {
+                            let json = await res.json();
+                            if (json.items && json.items.length > 0) datiVolume = json.items[0].volumeInfo;
+                        }
+                    } catch (e) { console.error("Errore Ricerca Testuale:", e); }
                 }
 
-                let res = await fetch(url);
-                if (res.ok) {
-                    let json = await res.json();
-                    if (json.items && json.items.length > 0) {
-                        let datiVolume = json.items[0].volumeInfo;
-                        libroInSospeso.titolo = datiVolume.title || libroInSospeso.titolo;
-                        libroInSospeso.autore = datiVolume.authors ? datiVolume.authors[0] : libroInSospeso.autore;
-                        libroInSospeso.trama = datiVolume.description || "";
+                // Se abbiamo i dati da Google Books
+                if (datiVolume && datiVolume !== "Trovato_OL") {
+                    libroInSospeso.titolo = datiVolume.title || "Titolo Sconosciuto";
+                    libroInSospeso.autore = datiVolume.authors ? datiVolume.authors.join(", ") : "Autore Sconosciuto";
+                    libroInSospeso.trama = datiVolume.description || "";
+                    if (datiVolume.industryIdentifiers) {
+                        const id13 = datiVolume.industryIdentifiers.find(id => id.type === "ISBN_13");
+                        libroInSospeso.isbn = id13 ? id13.identifier : datiVolume.industryIdentifiers[0].identifier;
+                    } else if (isIsbn || !isNaN(queryPulita)) {
+                        libroInSospeso.isbn = queryPulita;
+                    }
+                    if (datiVolume.imageLinks && datiVolume.imageLinks.thumbnail) {
+                        imageUrl = datiVolume.imageLinks.thumbnail.replace("http://", "https://");
                     }
                 }
-            } catch (error) {
-                console.error("Errore API Google:", error);
-            }
 
-            mostraSchermataConferma();
+                // Se non c'è l'immagine da Google, chiediamo le copertine a OpenLibrary tramite l'ISBN pulito
+                if (!imageUrl && (isIsbn || !isNaN(queryPulita))) {
+                    imageUrl = `https://covers.openlibrary.org/b/isbn/${queryPulita}-M.jpg`;
+                }
+
+                libroInSospeso.copertinaUrl = imageUrl;
+                mostraSchermataConferma();
+
+            } catch (error) {
+                console.error("Errore Catastrofico:", error);
+                mostraSchermataConferma();
+            }
         }
 
         function mostraSchermataConferma() {
@@ -285,9 +313,11 @@
                 const q = query(collection(db, "libri"), orderBy("dataInserimento", "desc"));
                 const querySnapshot = await getDocs(q);
                 tuttiILibri = [];
+                
                 querySnapshot.forEach((docSnap) => {
                     tuttiILibri.push({ id: docSnap.id, ...docSnap.data() });
                 });
+                
                 renderLibri();
             } catch (e) {
                 container.innerHTML = `<p class="text-center text-sm text-red-500 py-10">Errore: ${e.message}</p>`;
@@ -297,6 +327,7 @@
         function renderLibri() {
             const container = document.getElementById('lista-libri');
             container.innerHTML = "";
+            
             const libriFiltrati = tuttiILibri.filter(l => filtroCorrente === "Tutti" || l.stato === filtroCorrente);
             
             if(libriFiltrati.length === 0) {
@@ -332,10 +363,12 @@
                             <div class="text-[10px] text-gray-400 font-mono mt-2">ISBN: ${libro.isbn || 'N/D'}</div>
                         </div>
                     </div>
+                    
                     <div class="bg-gray-50 p-2 rounded-lg border border-gray-50">
                         <label class="text-[9px] font-bold text-gray-400 block uppercase">Le mie riflessioni</label>
                         <textarea id="note-${libro.id}" onchange="aggiornaNota('${libro.id}')" class="w-full bg-transparent text-xs text-gray-600 border-none focus:outline-none focus:ring-1 focus:ring-blue-100 rounded mt-0.5 resize-none" rows="2" placeholder="Scrivi qui i tuoi pensieri...">${libro.riflessioni || ""}</textarea>
                     </div>
+
                     <div class="flex justify-end items-center text-xs">
                         <select onchange="cambiaStatoLibro('${libro.id}', this.value)" class="text-xs bg-gray-100 text-gray-700 rounded px-2 py-1 border-none focus:ring-1 focus:ring-blue-500">
                             <option value="Da leggere" ${libro.stato === 'Da leggere' ? 'selected' : ''}>📚 Da leggere</option>
@@ -379,7 +412,7 @@
         }
 
         window.eliminaLibro = async function(id) {
-            if(confirm("Vuoi davvero eliminare questo libro?")) {
+            if(confirm("Vuoi davvero eliminare questo libro dalla tua collezione?")) {
                 try {
                     await deleteDoc(doc(db, "libri", id));
                     tuttiILibri = tuttiILibri.filter(l => l.id !== id);
@@ -404,8 +437,8 @@
             }, function(err) {
                 if (err) { 
                     console.error(err);
-                    testoStato.innerText = "❌ Errore fotocamera: " + err.name + ". Verifica i permessi del browser."; 
-                    alert("Impossibile accedere alla fotocamera. Assicurati di aver concesso i permessi o prova a non usare la modalità Incognito.");
+                    testoStato.innerText = "❌ Errore fotocamera: Verifica i permessi."; 
+                    alert("Impossibile accedere alla fotocamera. Assicurati di aver concesso i permessi (clicca sull'icona del lucchetto in alto a sinistra nella barra dell'indirizzo).");
                     return; 
                 }
                 Quagga.start();
