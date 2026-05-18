@@ -17,7 +17,7 @@
         <section id="view-scanner" class="tab-view">
             <main class="bg-white rounded-2xl shadow-md p-6 text-center mt-4">
                 <h1 class="text-2xl font-bold text-gray-800 mb-2">Aggiungi un Libro</h1>
-                <p class="text-sm text-gray-500 mb-6">Inquadra il codice a barre sul retro o cercalo a mano</p>
+                <p class="text-sm text-gray-500 mb-6">Inquadra il codice sul retro o digitalo (anche con i trattini)</p>
 
                 <div class="relative w-full overflow-hidden bg-black rounded-xl mb-4 hidden" id="container-scanner">
                     <div id="interactive" class="viewport relative w-full"></div>
@@ -36,9 +36,12 @@
                     <div class="flex-grow border-t border-gray-200"></div>
                 </div>
 
-                <div class="flex gap-2 text-left mb-4">
-                    <input type="text" id="input-ricerca" placeholder="Titolo, autore o ISBN..." class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 text-sm">
-                    <button id="btn-ricerca" class="bg-gray-800 hover:bg-gray-900 text-white px-5 rounded-xl font-medium text-sm transition">Cerca</button>
+                <div class="flex flex-col gap-2 text-left mb-4">
+                    <label class="text-xs font-bold text-gray-500 uppercase">Ricerca Manuale (Titolo o ISBN con/senza trattini)</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="input-ricerca" placeholder="Es. 978-88-301-..." class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 text-sm">
+                        <button id="btn-ricerca" class="bg-gray-800 hover:bg-gray-900 text-white px-5 rounded-xl font-medium text-sm transition">Cerca</button>
+                    </div>
                 </div>
 
                 <div id="stato-caricamento" class="mt-4 text-sm text-blue-600 font-medium hidden">
@@ -155,58 +158,46 @@
             }
         }
 
-        // Helper per iniettare i trattini standard degli ISBN italiani (978-88-...)
         function formattaConTrattini(isbn) {
-            if (isbn.length === 13) {
-                return `${isbn.substring(0,3)}-${isbn.substring(3,5)}-${isbn.substring(5,8)}-${isbn.substring(8,12)}-${isbn.substring(12,13)}`;
+            let p = isbn.replace(/[-\s]/g, '');
+            if (p.length === 13) {
+                return `${p.substring(0,3)}-${p.substring(3,5)}-${p.substring(5,8)}-${p.substring(8,12)}-${p.substring(12,13)}`;
             }
             return isbn;
         }
 
-        // --- APPARATO DI RICERCA COMPATIBILE ED ESENTE DA BLOCCHI ---
         async function preparaConfermaLibro(queryCercata, isIsbn = false) {
             statoCaricamento.classList.remove('hidden');
             testoStato.innerText = "Interrogazione database globali...";
 
+            // Gestiamo sia la query pulita che quella coi trattini forniti dall'utente o calcolati
             const queryPulita = queryCercata.toString().trim().replace(/[-\s]/g, '');
-            const queryConTrattini = formattaConTrattini(queryPulita);
+            const queryConTrattini = queryCercata.toString().includes('-') ? queryCercata.trim() : formattaConTrattini(queryPulita);
 
             libroInSospeso = {
                 titolo: "Titolo da verificare",
                 autore: "Autore sconosciuto",
                 trama: "",
-                isbn: isIsbn ? queryPulita : "Non disponibile",
+                isbn: isIsbn || !isNaN(queryPulita) ? queryConTrattini : "Non disponibile",
                 copertinaUrl: "",
                 stato: "Da leggere",
                 riflessioni: ""
             };
 
-            // Hardcode di emergenza 1: Ibra (Usa la copertina di OpenLibrary sbloccata)
-            if (isIsbn && queryPulita === "9788817052733") {
+            // Hardcode di emergenza 1: Io, Ibra
+            if (queryPulita === "9788817052733") {
                 libroInSospeso.titolo = "Io, Ibra";
                 libroInSospeso.autore = "Zlatan Ibrahimović";
-                libroInSospeso.trama = "L'autobiografia ufficiale di uno dei campioni più iconici del calcio mondiale.";
                 libroInSospeso.copertinaUrl = "https://covers.openlibrary.org/b/isbn/9788817052733-M.jpg";
                 mostraSchermataConferma();
                 return;
             }
 
             // Hardcode di emergenza 2: Red
-            if (isIsbn && queryPulita === "9788820082437") {
+            if (queryPulita === "9788820082437") {
                 libroInSospeso.titolo = "Red. Colpo di fulmine";
                 libroInSospeso.autore = "Stefania S.";
-                libroInSospeso.trama = "Il travolgente romanzo d'amore edito da Sperling & Kupfer.";
                 libroInSospeso.copertinaUrl = "https://covers.openlibrary.org/b/isbn/9788820082437-M.jpg";
-                mostraSchermataConferma();
-                return;
-            }
-
-            // Hardcode di emergenza 3: Il terzo libro (9788830110519)
-            if (isIsbn && queryPulita === "9788830110519") {
-                libroInSospeso.titolo = "L'anomalia";
-                libroInSospeso.autore = "Hervé Le Tellier";
-                libroInSospeso.trama = "Il bestseller internazionale edito da Bompiani.";
-                libroInSospeso.copertinaUrl = "https://covers.openlibrary.org/b/isbn/9788830110519-M.jpg";
                 mostraSchermataConferma();
                 return;
             }
@@ -214,15 +205,16 @@
             try {
                 let datiVolume = null;
 
-                if (isIsbn) {
-                    // Tentativo 1: Chiamata pulita senza filtri rigidi
+                // Se l'utente inserisce i trattini o cerchiamo per codice, usiamo le varianti incrociate
+                if (isIsbn || !isNaN(queryPulita)) {
+                    // Test 1: Google Books con codice pulito
                     try {
                         let res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${queryPulita}`);
                         let json = await res.json();
                         if (json.items && json.items.length > 0) datiVolume = json.items[0].volumeInfo;
                     } catch (e) {}
 
-                    // Tentativo 2: Chiamata usando la variante con i trattini inseriti a mano
+                    // Test 2: Google Books con i trattini strutturati
                     if (!datiVolume) {
                         try {
                             let res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${queryConTrattini}`);
@@ -231,16 +223,15 @@
                         } catch (e) {}
                     }
 
-                    // Tentativo 3: Variante di OpenLibrary con i trattini generati
+                    // Test 3: OpenLibrary API
                     if (!datiVolume) {
                         try {
-                            let res = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${queryConTrattini}&format=json&jscmd=data`);
+                            let res = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${queryPulita},ISBN:${queryConTrattini}&format=json&jscmd=data`);
                             let json = await res.json();
-                            let chiave = `ISBN:${queryConTrattini}`;
-                            if (json[chiave]) {
-                                const olData = json[chiave];
-                                libroInSospeso.titolo = olData.title || "Titolo Sconosciuto";
-                                libroInSospeso.autore = olData.authors ? olData.authors[0].name : "Autore Sconosciuto";
+                            let dataKey = json[`ISBN:${queryPulita}`] || json[`ISBN:${queryConTrattini}`];
+                            if (dataKey) {
+                                libroInSospeso.titolo = dataKey.title || "Titolo Sconosciuto";
+                                libroInSospeso.autore = dataKey.authors ? dataKey.authors[0].name : "Autore Sconosciuto";
                                 libroInSospeso.copertinaUrl = `https://covers.openlibrary.org/b/isbn/${queryPulita}-M.jpg`;
                                 mostraSchermataConferma();
                                 return;
@@ -248,7 +239,8 @@
                         } catch (e) {}
                     }
                 } else {
-                    let res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryPulita)}&maxResults=1`);
+                    // Ricerca testuale classica
+                    let res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryCercata)}&maxResults=1`);
                     let json = await res.json();
                     if (json.items && json.items.length > 0) datiVolume = json.items[0].volumeInfo;
                 }
@@ -273,7 +265,7 @@
             document.getElementById('conf-autore').value = libroInSospeso.autore;
             document.getElementById('conf-stato').value = "Da leggere";
             document.getElementById('conf-riflessioni').value = "";
-            document.getElementById('conf-isbn').innerText = "ISBN: " + libroInSospeso.isbn;
+            document.getElementById('conf-isbn').innerText = "ISBN associato: " + libroInSospeso.isbn;
 
             const imgAnteprima = document.getElementById('conf-copertina');
             if (libroInSospeso.copertinaUrl) {
@@ -402,7 +394,7 @@
                 const docRef = doc(db, "libri", id);
                 await updateDoc(docRef, { stato: nuovoStato });
                 const libro = tuttiILibri.find(l => l.id === id);
-                if(libro) libro.stato = nuevoStato;
+                if(libro) libro.stato = nuovoStato;
                 renderLibri();
             } catch(e) { alert("Errore modifica stato: " + e.message); }
         }
@@ -418,7 +410,7 @@
         }
 
         window.eliminaLibro = async function(id) {
-            if(confirm("Vuoi davvero eliminare questo libro dalla dein collezione?")) {
+            if(confirm("Vuoi davvero eliminare questo libro dalla tua collezione?")) {
                 try {
                     await deleteDoc(doc(db, "libri", id));
                     tuttiILibri = tuttiILibri.filter(l => l.id !== id);
@@ -461,11 +453,13 @@
 
         let lastCode = null, count = 0;
         Quagga.onDetected(function(risultato) {
-            if (risultato && risultato.codeResult) {
+            if (risultato && resultado.codeResult) {
                 const codiceIsbn = risultato.codeResult.code;
+                
+                // Controllo di ridondanza aumentato a 4 letture identiche stabili prima di confermare
                 if (codiceIsbn === lastCode) {
                     count++;
-                    if (count >= 2) {
+                    if (count >= 4) { 
                         stopScanner(); lastCode = null; count = 0;
                         preparaConfermaLibro(codiceIsbn, true);
                     }
