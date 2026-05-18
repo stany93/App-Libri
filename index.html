@@ -3,11 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Scanner Libri Live</title>
+    <title>Scanner Libri Live HD</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2/dist/quagga.min.js"></script>
     <style>
-        /* Stile per centrare e gestire il video della fotocamera */
         #interactive.viewport video {
             width: 100%;
             height: auto;
@@ -30,7 +29,9 @@
 
         <div class="relative w-full overflow-hidden bg-black rounded-xl mb-4 hidden" id="container-scanner">
             <div id="interactive" class="viewport relative w-full"></div>
-            <div class="absolute inset-0 border-2 border-red-500 opacity-50 pointer-events-none m-auto w-3/4 h-16 rounded-md"></div>
+            <div class="absolute inset-0 border-2 border-red-500 opacity-60 pointer-events-none m-auto w-4/5 h-20 rounded-md flex items-center justify-center">
+                <span class="text-[10px] text-red-500 font-bold bg-black/50 px-2 py-0.5 rounded">ALLINEA CODICE</span>
+            </div>
         </div>
 
         <div class="flex flex-col gap-2 mb-6">
@@ -82,7 +83,6 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        // Elementi DOM
         const btnToggleScan = document.getElementById('btn-toggle-scan');
         const containerScanner = document.getElementById('container-scanner');
         const inputRicerca = document.getElementById('input-ricerca');
@@ -93,7 +93,6 @@
 
         let isScanning = false;
 
-        // Funzione per interpellare Google Books e salvare su Firebase
         async function cercaESalvaLibro(query, isIsbn = false) {
             statoCaricamento.classList.remove('hidden');
             testoStato.innerText = "Ricerca dettagli del libro...";
@@ -123,7 +122,6 @@
                 testoStato.innerText = "Salvataggio nel tuo archivio...";
                 await addDoc(collection(db, "libri"), libroDaSalvare);
 
-                // Mostra i risultati
                 document.getElementById('res-titolo').innerText = libroDaSalvare.titolo;
                 document.getElementById('res-autore').innerText = libroDaSalvare.autore;
                 document.getElementById('res-isbn').innerText = "ISBN: " + libroDaSalvare.isbn;
@@ -138,11 +136,10 @@
             }
         }
 
-        // Funzione per avviare la fotocamera live
         function startScanner() {
             containerScanner.classList.remove('hidden');
             statoCaricamento.classList.remove('hidden');
-            testoStato.innerText = "Avvio fotocamera...";
+            testoStato.innerText = "Avvio fotocamera HD...";
 
             Quagga.init({
                 inputStream: {
@@ -150,24 +147,30 @@
                     type: "LiveStream",
                     target: document.querySelector('#interactive'),
                     constraints: {
-                        facingMode: "environment", // Forza la fotocamera posteriore
-                        aspectRatio: { min: 1, max: 2 }
+                        facingMode: "environment",
+                        // Chiediamo esplicitamente una risoluzione Full HD per rendere le linee nitide
+                        width: { min: 1080, ideal: 1920 },
+                        height: { min: 720, ideal: 1080 }
                     },
                 },
+                locator: {
+                    patchSize: "medium",
+                    halfSample: false // Evita di dimezzare la risoluzione durante l'analisi
+                },
                 decoder: {
-                    readers: ["ean_reader"] // Legge i codici a barre dei libri
+                    readers: ["ean_reader"]
                 }
             }, function(err) {
                 if (err) {
                     console.error(err);
-                    testoStato.innerText = "❌ Impossibile accedere alla fotocamera.";
+                    testoStato.innerText = "❌ Impossibile accedere alla fotocamera HD.";
                     return;
                 }
                 Quagga.start();
                 isScanning = true;
                 btnToggleScan.innerText = "🛑 Disattiva Scanner";
                 btnToggleScan.classList.replace('bg-blue-600', 'bg-red-600');
-                testoStato.innerText = "Scanner attivo. Inquadra il codice.";
+                testoStato.innerText = "Scanner HD attivo. Muovi lentamente il telefono.";
             });
         }
 
@@ -180,7 +183,6 @@
             btnToggleScan.classList.replace('bg-red-600', 'bg-blue-600');
         }
 
-        // Gestione Click Pulsante Scanner
         btnToggleScan.addEventListener('click', function() {
             if (isScanning) {
                 stopScanner();
@@ -189,21 +191,17 @@
             }
         });
 
-        // Evento di rilevamento codice a barre riuscito
+        // Corretto il refuso "resultado" in "risultato"
         Quagga.onDetected(function(risultato) {
-            if (risultato && resultado.codeResult) {
+            if (risultato && risultato.codeResult) {
                 const codiceIsbn = risultato.codeResult.code;
-                console.log("Codice captato live:", codiceIsbn);
+                console.log("Codice captato live HD:", codiceIsbn);
                 
-                // Fermiamo subito lo scanner per evitare letture doppie
                 stopScanner();
-                
-                // Avviamo la ricerca e il salvataggio
                 cercaESalvaLibro(codiceIsbn, true);
             }
         });
 
-        // Gestore ricerca manuale
         btnRicerca.addEventListener('click', function() {
             const testoCercato = inputRicerca.value.trim();
             if (testoCercato.length > 2) {
