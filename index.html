@@ -6,7 +6,6 @@
     <title>La Mia Libreria Pro</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2/dist/quagga.min.js"></script>
-    <script src="https://unpkg.com/tesseract.js@5.0.5/dist/tesseract.min.js"></script>
     <style>
         #interactive.viewport video { width: 100%; height: auto; border-radius: 12px; }
     </style>
@@ -18,7 +17,7 @@
         <section id="view-scanner" class="tab-view">
             <main class="bg-white rounded-2xl shadow-md p-6 text-center mt-4">
                 <h1 class="text-2xl font-bold text-gray-800 mb-2">Aggiungi un Libro</h1>
-                <p class="text-sm text-gray-500 mb-6">Scegli come scansionare il tuo libro</p>
+                <p class="text-sm text-gray-500 mb-6">Inquadra il codice a barre sul retro o cerca il titolo a mano</p>
 
                 <div class="relative w-full overflow-hidden bg-black rounded-xl mb-4 hidden" id="container-scanner">
                     <div id="interactive" class="viewport relative w-full"></div>
@@ -27,16 +26,9 @@
                     </div>
                 </div>
 
-                <div class="flex gap-2 mb-6">
-                    <button id="btn-toggle-scan" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-2 rounded-xl shadow transition text-sm flex flex-col items-center justify-center gap-1">
-                        <span class="text-xl">📸</span> Codice a Barre
-                    </button>
-                    
-                    <label class="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-semibold py-4 px-2 rounded-xl shadow transition text-sm cursor-pointer flex flex-col items-center justify-center gap-1">
-                        <span class="text-xl">🔤</span> Leggi Copertina
-                        <input type="file" accept="image/*" capture="environment" id="input-foto-testo" class="hidden">
-                    </label>
-                </div>
+                <button id="btn-toggle-scan" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-6 rounded-xl shadow transition mb-6 flex justify-center items-center gap-2">
+                    <span class="text-xl">📸</span> Avvia Scanner Codice a Barre
+                </button>
 
                 <div class="relative flex py-2 items-center mb-6">
                     <div class="flex-grow border-t border-gray-200"></div>
@@ -45,9 +37,9 @@
                 </div>
 
                 <div class="flex flex-col gap-2 text-left mb-4">
-                    <label class="text-xs font-bold text-gray-500 uppercase">Ricerca Manuale</label>
+                    <label class="text-xs font-bold text-gray-500 uppercase">Ricerca Manuale Rapida</label>
                     <div class="flex gap-2">
-                        <input type="text" id="input-ricerca" placeholder="Titolo o ISBN..." class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 text-sm">
+                        <input type="text" id="input-ricerca" placeholder="Es. Harry Potter o 97888..." class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 text-sm">
                         <button id="btn-ricerca" class="bg-gray-800 hover:bg-gray-900 text-white px-5 rounded-xl font-medium text-sm transition">Cerca</button>
                     </div>
                 </div>
@@ -62,6 +54,11 @@
             <div class="bg-white rounded-2xl shadow-md p-6 mt-4">
                 <h2 class="text-xl font-bold text-gray-800 mb-4 text-center">Confermi l'inserimento?</h2>
                 
+                <div id="avviso-non-trovato" class="w-full bg-yellow-100 text-yellow-800 text-xs p-3 rounded-lg mb-4 hidden border border-yellow-200 text-left">
+                    ⚠️ <b>Codice non registrato online.</b> <br>
+                    Questo succede con le ristampe speciali. Annulla e cerca per <b>Titolo</b> usando la casella di testo!
+                </div>
+
                 <div class="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-4 flex flex-col items-center">
                     <img id="conf-copertina" referrerpolicy="no-referrer" class="w-28 h-40 object-cover rounded-lg shadow-md mb-4 hidden" src="" alt="Copertina libro">
                     
@@ -145,7 +142,6 @@
         const containerScanner = document.getElementById('container-scanner');
         const inputRicerca = document.getElementById('input-ricerca');
         const btnRicerca = document.getElementById('btn-ricerca');
-        const inputFotoTesto = document.getElementById('input-foto-testo');
         const statoCaricamento = document.getElementById('stato-caricamento');
         const testoStato = document.getElementById('testo-stato');
         let isScanning = false;
@@ -167,7 +163,6 @@
             }
         }
 
-        // --- SISTEMA DI RICERCA FLESSIBILE ---
         async function preparaConfermaLibro(queryCercata, isIsbn = false) {
             statoCaricamento.classList.remove('hidden');
             testoStato.innerText = "Ricerca in corso...";
@@ -216,7 +211,7 @@
                         } catch (e) {}
                     }
                 } else {
-                    // Ricerca testuale per Nome (sia da input manuale che da lettura foto)
+                    // Ricerca testuale per Nome 
                     try {
                         let res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryCercata)}&maxResults=1`);
                         if (res.ok) {
@@ -262,6 +257,14 @@
             document.getElementById('conf-riflessioni').value = "";
             document.getElementById('conf-isbn').innerText = "Riferimento: " + libroInSospeso.isbn;
 
+            // Logica del banner giallo per le edizioni fantasma
+            const avvisoNonTrovato = document.getElementById('avviso-non-trovato');
+            if (libroInSospeso.titolo === "Titolo da verificare" || libroInSospeso.titolo === "") {
+                avvisoNonTrovato.classList.remove('hidden');
+            } else {
+                avvisoNonTrovato.classList.add('hidden');
+            }
+
             const imgAnteprima = document.getElementById('conf-copertina');
             if (libroInSospeso.copertinaUrl) {
                 imgAnteprima.src = libroInSospeso.copertinaUrl;
@@ -288,6 +291,8 @@
                 await addDoc(collection(db, "libri"), libroInSospeso);
                 libroInSospeso = null;
                 switchTab('libreria');
+                // Svuotiamo la casella di ricerca manuale
+                document.getElementById('input-ricerca').value = "";
             } catch (e) {
                 alert("Errore nel salvataggio: " + e.message);
             }
@@ -439,7 +444,7 @@
         function stopScanner() {
             Quagga.stop(); isScanning = false;
             containerScanner.classList.add('hidden'); statoCaricamento.classList.add('hidden');
-            btnToggleScan.innerHTML = '<span class="text-xl">📸</span> Codice a Barre';
+            btnToggleScan.innerHTML = '<span class="text-xl">📸</span> Avvia Scanner Codice a Barre';
             btnToggleScan.classList.replace('bg-red-600', 'bg-blue-600');
         }
 
@@ -456,31 +461,6 @@
                         preparaConfermaLibro(codiceIsbn, true);
                     }
                 } else { lastCode = codiceIsbn; count = 0; }
-            }
-        });
-
-        // --- SCANNER TESTO COPERTINA (OCR TESSERACT) ---
-        inputFotoTesto.addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            if (isScanning) stopScanner();
-
-            statoCaricamento.classList.remove('hidden');
-            testoStato.innerText = "Lettura testo copertina in corso (potrebbe volerci qualche secondo)...";
-
-            try {
-                const worker = await Tesseract.createWorker('ita');
-                const ret = await worker.recognize(file);
-                const testoEstratto = ret.data.text.replace(/\n/g, ' ').trim();
-                await worker.terminate();
-
-                if (testoEstratto.length < 3) throw new Error("Testo non rilevato chiaramente.");
-                
-                // Passiamo il testo letto direttamente alla ricerca su Google Books
-                preparaConfermaLibro(testoEstratto, false);
-
-            } catch (err) {
-                testoStato.innerText = "❌ " + err.message + " Prova a inquadrare un testo più netto o usa la ricerca manuale.";
             }
         });
 
