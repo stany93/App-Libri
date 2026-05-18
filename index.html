@@ -82,15 +82,14 @@
                 <h2 class="text-2xl font-bold text-gray-800 mb-4">La Mia Libreria</h2>
                 
                 <div class="flex gap-1 overflow-x-auto pb-2 mb-4 scrollbar-none text-xs">
-                    <button onclick="filtraLibreria('Tutti')" class="filter-btn bg-blue-600 text-white px-3 py-2 rounded-full font-medium whitespace-nowrap">Tutti</button>
+                    <button id="filter-all" onclick="filtraLibreria('Tutti')" class="filter-btn bg-blue-600 text-white px-3 py-2 rounded-full font-medium whitespace-nowrap">Tutti</button>
                     <button onclick="filtraLibreria('Da leggere')" class="filter-btn bg-white text-gray-600 border border-gray-200 px-3 py-2 rounded-full font-medium whitespace-nowrap">📚 Da leggere</button>
                     <button onclick="filtraLibreria('In lettura')" class="filter-btn bg-white text-gray-600 border border-gray-200 px-3 py-2 rounded-full font-medium whitespace-nowrap">📖 In lettura</button>
                     <button onclick="filtraLibreria('Letto')" class="filter-btn bg-white text-gray-600 border border-gray-200 px-3 py-2 rounded-full font-medium whitespace-nowrap">✅ Letto</button>
                     <button onclick="filtraLibreria('Da rileggere')" class="filter-btn bg-white text-gray-600 border border-gray-200 px-3 py-2 rounded-full font-medium whitespace-nowrap">🔄 Da rileggere</button>
                 </div>
 
-                <div id="lista-libri" class="space-y-4">
-                    </div>
+                <div id="lista-libri" class="space-y-4"></div>
             </div>
         </section>
 
@@ -122,12 +121,10 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        // Variabili globali per la sessione corrente
         let libroInSospeso = null;
         let tuttiILibri = [];
         let filtroCorrente = "Tutti";
 
-        // Elementi DOM
         const btnToggleScan = document.getElementById('btn-toggle-scan');
         const containerScanner = document.getElementById('container-scanner');
         const inputRicerca = document.getElementById('input-ricerca');
@@ -136,7 +133,6 @@
         const testoStato = document.getElementById('testo-stato');
         let isScanning = false;
 
-        // --- GESTIONE NAVIGAZIONE SCHEDE ---
         window.switchTab = function(tabName) {
             document.querySelectorAll('.tab-view').forEach(view => view.classList.add('hidden'));
             document.getElementById('view-conferma').classList.add('hidden');
@@ -154,7 +150,7 @@
             }
         }
 
-        // --- INTERCETTAZIONE DATI E PRE-CONFERMA ---
+        // --- LOGICA DI FUNZIONAMENTO INTEGRATA ---
         async function preparaConfermaLibro(queryCercata, isIsbn = false) {
             statoCaricamento.classList.remove('hidden');
             testoStato.innerText = "Ricerca dettagli online...";
@@ -169,9 +165,17 @@
             };
 
             try {
-                const urlApi = isIsbn ? `https://www.googleapis.com/books/v1/volumes?q=isbn:${queryCercata}` : `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryCercata)}&maxResults=1`;
-                const rispostaApi = await fetch(urlApi);
-                const datiApi = await rispostaApi.json();
+                let urlApi = isIsbn ? `https://www.googleapis.com/books/v1/volumes?q=isbn:${queryCercata}` : `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryCercata)}&maxResults=1`;
+                let rispostaApi = await fetch(urlApi);
+                let datiApi = await rispostaApi.json();
+
+                // Fallback intelligente: se la ricerca per campo ISBN fallisce, cerchiamo il numero come testo generico
+                if (isIsbn && (!datiApi.items || datiApi.items.length === 0)) {
+                    console.log("Ricerca rigida ISBN fallita. Tento il fallback generico per: " + queryCercata);
+                    urlApi = `https://www.googleapis.com/books/v1/volumes?q=${queryCercata}&maxResults=1`;
+                    rispostaApi = await fetch(urlApi);
+                    datiApi = await rispostaApi.json();
+                }
 
                 if (datiApi.items && datiApi.items.length > 0) {
                     const volumeInfo = datiApi.items[0].volumeInfo;
@@ -181,14 +185,12 @@
                     if (volumeInfo.industryIdentifiers) libroInSospeso.isbn = volumeInfo.industryIdentifiers[0].identifier;
                 }
 
-                // Popola i campi della scheda di conferma
                 document.getElementById('conf-titolo').value = libroInSospeso.titolo;
                 document.getElementById('conf-autore').value = libroInSospeso.autore;
                 document.getElementById('conf-stato').value = "Da leggere";
                 document.getElementById('conf-riflessioni').value = "";
                 document.getElementById('conf-isbn').innerText = "ISBN: " + libroInSospeso.isbn;
 
-                // Sposta la visualizzazione sulla scheda di conferma
                 document.querySelectorAll('.tab-view').forEach(view => view.classList.add('hidden'));
                 document.getElementById('view-conferma').classList.remove('hidden');
                 statoCaricamento.classList.add('hidden');
@@ -199,11 +201,9 @@
             }
         }
 
-        // --- SALVATAGGIO DEFINITIVO SU FIRESTORE ---
         document.getElementById('btn-conferma-salvataggio').addEventListener('click', async () => {
             if (!libroInSospeso) return;
 
-            // Raccoglie eventuali modifiche fatte a mano dall'utente nella scheda di conferma
             libroInSospeso.titolo = document.getElementById('conf-titolo').value.trim();
             libroInSospeso.autore = document.getElementById('conf-autore').value.trim();
             libroInSospeso.stato = document.getElementById('conf-stato').value;
@@ -213,7 +213,7 @@
             try {
                 await addDoc(collection(db, "libri"), libroInSospeso);
                 libroInSospeso = null;
-                switchTab('libreria'); // Vai alla lista per vedere il libro salvato
+                switchTab('libreria');
             } catch (e) {
                 alert("Errore nel salvataggio: " + e.message);
             }
@@ -224,7 +224,6 @@
             switchTab('scanner');
         });
 
-        // --- CARICAMENTO E RENDERING DELLA LISTA (LIBRERIA) ---
         async function caricaLibreria() {
             const container = document.getElementById('lista-libri');
             container.innerHTML = `<p class="text-center text-sm text-gray-500 py-10">Caricamento libreria...</p>`;
@@ -259,7 +258,6 @@
                 const card = document.createElement('div');
                 card.className = "bg-white rounded-xl shadow-sm border border-gray-100 p-4 relative space-y-2";
                 
-                // Badge di colore diverso per ogni stato
                 let badgeColor = "bg-gray-100 text-gray-600";
                 if(libro.stato === "In lettura") badgeColor = "bg-yellow-100 text-yellow-700";
                 if(libro.stato === "Letto") badgeColor = "bg-green-100 text-green-700";
@@ -269,8 +267,8 @@
                     <div class="flex justify-between items-start">
                         <div>
                             <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${badgeColor}">${libro.stato}</span>
-                            <h3 class="font-bold text-gray-800 text-base mt-1" id="title-${libro.id}">${libro.title || libro.titolo}</h3>
-                            <p class="text-xs text-gray-500" id="author-${libro.id}">${libro.author || libro.autore}</p>
+                            <h3 class="font-bold text-gray-800 text-base mt-1">${libro.titolo || 'Titolo Sconosciuto'}</h3>
+                            <p class="text-xs text-gray-500">${libro.autore || 'Autore Sconosciuto'}</p>
                         </div>
                         <div class="flex gap-2">
                             <button onclick="eliminaLibro('${libro.id}')" class="text-gray-300 hover:text-red-500 text-sm p-1">🗑️</button>
@@ -296,9 +294,8 @@
             });
         }
 
-        // --- GESTIONE CAMBIAMENTI, AGGIORNAMENTI E CANCELLAZIONI ---
         window.filtraLibreria = function(stato) {
-            filtroCorrente = state = stato;
+            filtroCorrente = stato;
             document.querySelectorAll('.filter-btn').forEach(btn => {
                 btn.className = "filter-btn bg-white text-gray-600 border border-gray-200 px-3 py-2 rounded-full font-medium whitespace-nowrap";
             });
@@ -310,7 +307,6 @@
             try {
                 const docRef = doc(db, "libri", id);
                 await updateDoc(docRef, { stato: nuovoStato });
-                // Aggiorna lo stato localmente senza ricaricare da zero tutto
                 const libro = tuttiILibri.find(l => l.id === id);
                 if(libro) libro.stato = nuovoStato;
                 renderLibri();
@@ -337,7 +333,6 @@
             }
         }
 
-        // --- LOGICA DELLO SCANNER (QUAGGA) ---
         function startScanner() {
             containerScanner.classList.remove('hidden');
             statoCaricamento.classList.remove('hidden');
@@ -396,4 +391,3 @@
     </script>
 </body>
 </html>
-
