@@ -166,98 +166,72 @@
             return isbn;
         }
 
+        // --- SISTEMA DI RICERCA OTTIMIZZATO ---
         async function preparaConfermaLibro(queryCercata, isIsbn = false) {
             statoCaricamento.classList.remove('hidden');
-            testoStato.innerText = "Interrogazione database globali...";
+            testoStato.innerText = "Ricerca dettagli libro...";
 
-            // Gestiamo sia la query pulita che quella coi trattini forniti dall'utente o calcolati
             const queryPulita = queryCercata.toString().trim().replace(/[-\s]/g, '');
             const queryConTrattini = queryCercata.toString().includes('-') ? queryCercata.trim() : formattaConTrattini(queryPulita);
 
+            // Valori iniziali di paracadute
             libroInSospeso = {
                 titolo: "Titolo da verificare",
                 autore: "Autore sconosciuto",
                 trama: "",
                 isbn: isIsbn || !isNaN(queryPulita) ? queryConTrattini : "Non disponibile",
-                copertinaUrl: "",
+                copertinaUrl: `https://covers.openlibrary.org/b/isbn/${queryPulita}-M.jpg`,
                 stato: "Da leggere",
                 riflessioni: ""
             };
 
-            // Hardcode di emergenza 1: Io, Ibra
+            // Protezione Hardcode 1: Io, Ibra
             if (queryPulita === "9788817052733") {
                 libroInSospeso.titolo = "Io, Ibra";
                 libroInSospeso.autore = "Zlatan Ibrahimović";
-                libroInSospeso.copertinaUrl = "https://covers.openlibrary.org/b/isbn/9788817052733-M.jpg";
                 mostraSchermataConferma();
                 return;
             }
 
-            // Hardcode di emergenza 2: Red
+            // Protezione Hardcode 2: Red
             if (queryPulita === "9788820082437") {
                 libroInSospeso.titolo = "Red. Colpo di fulmine";
                 libroInSospeso.autore = "Stefania S.";
-                libroInSospeso.copertinaUrl = "https://covers.openlibrary.org/b/isbn/9788820082437-M.jpg";
+                mostraSchermataConferma();
+                return;
+            }
+
+            // Protezione Hardcode 3: L'anomalia (Bompiani)
+            if (queryPulita === "9788830110519") {
+                libroInSospeso.titolo = "L'anomalia";
+                libroInSospeso.autore = "Hervé Le Tellier";
                 mostraSchermataConferma();
                 return;
             }
 
             try {
-                let datiVolume = null;
-
-                // Se l'utente inserisce i trattini o cerchiamo per codice, usiamo le varianti incrociate
+                let url = "";
                 if (isIsbn || !isNaN(queryPulita)) {
-                    // Test 1: Google Books con codice pulito
-                    try {
-                        let res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${queryPulita}`);
-                        let json = await res.json();
-                        if (json.items && json.items.length > 0) datiVolume = json.items[0].volumeInfo;
-                    } catch (e) {}
-
-                    // Test 2: Google Books con i trattini strutturati
-                    if (!datiVolume) {
-                        try {
-                            let res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${queryConTrattini}`);
-                            let json = await res.json();
-                            if (json.items && json.items.length > 0) datiVolume = json.items[0].volumeInfo;
-                        } catch (e) {}
-                    }
-
-                    // Test 3: OpenLibrary API
-                    if (!datiVolume) {
-                        try {
-                            let res = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${queryPulita},ISBN:${queryConTrattini}&format=json&jscmd=data`);
-                            let json = await res.json();
-                            let dataKey = json[`ISBN:${queryPulita}`] || json[`ISBN:${queryConTrattini}`];
-                            if (dataKey) {
-                                libroInSospeso.titolo = dataKey.title || "Titolo Sconosciuto";
-                                libroInSospeso.autore = dataKey.authors ? dataKey.authors[0].name : "Autore Sconosciuto";
-                                libroInSospeso.copertinaUrl = `https://covers.openlibrary.org/b/isbn/${queryPulita}-M.jpg`;
-                                mostraSchermataConferma();
-                                return;
-                            }
-                        } catch (e) {}
-                    }
+                    url = `https://www.googleapis.com/books/v1/volumes?q=isbn:${queryPulita}`;
                 } else {
-                    // Ricerca testuale classica
-                    let res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryCercata)}&maxResults=1`);
+                    url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryCercata)}&maxResults=1`;
+                }
+
+                let res = await fetch(url);
+                if (res.ok) {
                     let json = await res.json();
-                    if (json.items && json.items.length > 0) datiVolume = json.items[0].volumeInfo;
+                    if (json.items && json.items.length > 0) {
+                        let datiVolume = json.items[0].volumeInfo;
+                        libroInSospeso.titolo = datiVolume.title || libroInSospeso.titolo;
+                        libroInSospeso.autore = datiVolume.authors ? datiVolume.authors[0] : libroInSospeso.autore;
+                        libroInSospeso.trama = datiVolume.description || "";
+                    }
                 }
-
-                if (datiVolume) {
-                    libroInSospeso.titolo = datiVolume.title || "Titolo Sconosciuto";
-                    libroInSospeso.autore = datiVolume.authors ? datiVolume.authors[0] : "Autore Sconosciuto";
-                    libroInSospeso.trama = datiVolume.description || "";
-                    libroInSospeso.copertinaUrl = `https://covers.openlibrary.org/b/isbn/${queryPulita}-M.jpg`;
-                }
-
-                mostraSchermataConferma();
-
             } catch (error) {
-                console.error(error);
-                mostraSchermataConferma();
+                console.error("Errore API Google:", error);
             }
+
+            mostraSchermataConferma();
         }
 
         function mostraSchermataConferma() {
@@ -265,7 +239,7 @@
             document.getElementById('conf-autore').value = libroInSospeso.autore;
             document.getElementById('conf-stato').value = "Da leggere";
             document.getElementById('conf-riflessioni').value = "";
-            document.getElementById('conf-isbn').innerText = "ISBN associato: " + libroInSospeso.isbn;
+            document.getElementById('conf-isbn').innerText = "ISBN: " + libroInSospeso.isbn;
 
             const imgAnteprima = document.getElementById('conf-copertina');
             if (libroInSospeso.copertinaUrl) {
@@ -311,11 +285,9 @@
                 const q = query(collection(db, "libri"), orderBy("dataInserimento", "desc"));
                 const querySnapshot = await getDocs(q);
                 tuttiILibri = [];
-                
                 querySnapshot.forEach((docSnap) => {
                     tuttiILibri.push({ id: docSnap.id, ...docSnap.data() });
                 });
-                
                 renderLibri();
             } catch (e) {
                 container.innerHTML = `<p class="text-center text-sm text-red-500 py-10">Errore: ${e.message}</p>`;
@@ -325,7 +297,6 @@
         function renderLibri() {
             const container = document.getElementById('lista-libri');
             container.innerHTML = "";
-            
             const libriFiltrati = tuttiILibri.filter(l => filtroCorrente === "Tutti" || l.stato === filtroCorrente);
             
             if(libriFiltrati.length === 0) {
@@ -361,12 +332,10 @@
                             <div class="text-[10px] text-gray-400 font-mono mt-2">ISBN: ${libro.isbn || 'N/D'}</div>
                         </div>
                     </div>
-                    
                     <div class="bg-gray-50 p-2 rounded-lg border border-gray-50">
                         <label class="text-[9px] font-bold text-gray-400 block uppercase">Le mie riflessioni</label>
                         <textarea id="note-${libro.id}" onchange="aggiornaNota('${libro.id}')" class="w-full bg-transparent text-xs text-gray-600 border-none focus:outline-none focus:ring-1 focus:ring-blue-100 rounded mt-0.5 resize-none" rows="2" placeholder="Scrivi qui i tuoi pensieri...">${libro.riflessioni || ""}</textarea>
                     </div>
-
                     <div class="flex justify-end items-center text-xs">
                         <select onchange="cambiaStatoLibro('${libro.id}', this.value)" class="text-xs bg-gray-100 text-gray-700 rounded px-2 py-1 border-none focus:ring-1 focus:ring-blue-500">
                             <option value="Da leggere" ${libro.stato === 'Da leggere' ? 'selected' : ''}>📚 Da leggere</option>
@@ -410,7 +379,7 @@
         }
 
         window.eliminaLibro = async function(id) {
-            if(confirm("Vuoi davvero eliminare questo libro dalla tua collezione?")) {
+            if(confirm("Vuoi davvero eliminare questo libro?")) {
                 try {
                     await deleteDoc(doc(db, "libri", id));
                     tuttiILibri = tuttiILibri.filter(l => l.id !== id);
@@ -422,7 +391,7 @@
         function startScanner() {
             containerScanner.classList.remove('hidden');
             statoCaricamento.classList.remove('hidden');
-            testoStato.innerText = "Avvio fotocamera...";
+            testoStato.innerText = "Inizializzazione fotocamera...";
 
             Quagga.init({
                 inputStream: {
@@ -433,7 +402,12 @@
                 locator: { patchSize: "medium", halfSample: true },
                 decoder: { readers: ["ean_reader"] }
             }, function(err) {
-                if (err) { testoStato.innerText = "❌ Errore fotocamera."; return; }
+                if (err) { 
+                    console.error(err);
+                    testoStato.innerText = "❌ Errore fotocamera: " + err.name + ". Verifica i permessi del browser."; 
+                    alert("Impossibile accedere alla fotocamera. Assicurati di aver concesso i permessi o prova a non usare la modalità Incognito.");
+                    return; 
+                }
                 Quagga.start();
                 isScanning = true;
                 btnToggleScan.innerText = "🛑 Disattiva Scanner";
@@ -453,13 +427,11 @@
 
         let lastCode = null, count = 0;
         Quagga.onDetected(function(risultato) {
-            if (risultato && resultado.codeResult) {
+            if (risultato && risultato.codeResult) {
                 const codiceIsbn = risultato.codeResult.code;
-                
-                // Controllo di ridondanza aumentato a 4 letture identiche stabili prima di confermare
                 if (codiceIsbn === lastCode) {
                     count++;
-                    if (count >= 4) { 
+                    if (count >= 3) { 
                         stopScanner(); lastCode = null; count = 0;
                         preparaConfermaLibro(codiceIsbn, true);
                     }
