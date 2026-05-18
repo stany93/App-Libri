@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Scanner Libri Live HD</title>
+    <title>Scanner Libri Pro</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2/dist/quagga.min.js"></script>
     <style>
@@ -11,13 +11,6 @@
             width: 100%;
             height: auto;
             border-radius: 12px;
-        }
-        #interactive.viewport canvas.drawingBuffer {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: auto;
         }
     </style>
 </head>
@@ -29,8 +22,8 @@
 
         <div class="relative w-full overflow-hidden bg-black rounded-xl mb-4 hidden" id="container-scanner">
             <div id="interactive" class="viewport relative w-full"></div>
-            <div class="absolute inset-0 border-2 border-red-500 opacity-60 pointer-events-none m-auto w-4/5 h-20 rounded-md flex items-center justify-center">
-                <span class="text-[10px] text-red-500 font-bold bg-black/50 px-2 py-0.5 rounded">ALLINEA CODICE</span>
+            <div class="absolute inset-0 border-2 border-blue-500 opacity-60 pointer-events-none m-auto w-4/5 h-20 rounded-md flex items-center justify-center">
+                <span class="text-[10px] text-blue-500 font-bold bg-black/50 px-2 py-0.5 rounded">INQUADRA IL CODICE A BARRE</span>
             </div>
         </div>
 
@@ -95,8 +88,8 @@
 
         async function cercaESalvaLibro(query, isIsbn = false) {
             statoCaricamento.classList.remove('hidden');
-            testoStato.innerText = "Ricerca dettagli del libro...";
             zonaRisultato.classList.add('hidden');
+            testoStato.innerText = "Ricerca dettagli del libro...";
 
             try {
                 const urlApi = isIsbn ? `https://www.googleapis.com/books/v1/volumes?q=isbn:${query}` : `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=1`;
@@ -104,7 +97,7 @@
                 const datiApi = await rispostaApi.json();
 
                 if (!datiApi.items || datiApi.items.length === 0) {
-                    throw new Error("Libro non trovato nei database globali.");
+                    throw new Error(isIsbn ? `Codice letto (${query}) non presente nel database. Prova a cercare il titolo a mano.` : "Nessun libro trovato con questo nome.");
                 }
 
                 const volumeInfo = datiApi.items[0].volumeInfo;
@@ -139,7 +132,8 @@
         function startScanner() {
             containerScanner.classList.remove('hidden');
             statoCaricamento.classList.remove('hidden');
-            testoStato.innerText = "Avvio fotocamera HD...";
+            testoStato.innerText = "Avvio fotocamera...";
+            zonaRisultato.classList.add('hidden');
 
             Quagga.init({
                 inputStream: {
@@ -148,29 +142,23 @@
                     target: document.querySelector('#interactive'),
                     constraints: {
                         facingMode: "environment",
-                        // Chiediamo esplicitamente una risoluzione Full HD per rendere le linee nitide
-                        width: { min: 1080, ideal: 1920 },
-                        height: { min: 720, ideal: 1080 }
+                        width: { min: 640, ideal: 1280 },
+                        height: { min: 480, ideal: 720 }
                     },
                 },
-                locator: {
-                    patchSize: "medium",
-                    halfSample: false // Evita di dimezzare la risoluzione durante l'analisi
-                },
-                decoder: {
-                    readers: ["ean_reader"]
-                }
+                locator: { patchSize: "medium", halfSample: true },
+                decoder: { readers: ["ean_reader"] }
             }, function(err) {
                 if (err) {
                     console.error(err);
-                    testoStato.innerText = "❌ Impossibile accedere alla fotocamera HD.";
+                    testoStato.innerText = "❌ Impossibile accedere alla fotocamera.";
                     return;
                 }
                 Quagga.start();
                 isScanning = true;
                 btnToggleScan.innerText = "🛑 Disattiva Scanner";
                 btnToggleScan.classList.replace('bg-blue-600', 'bg-red-600');
-                testoStato.innerText = "Scanner HD attivo. Muovi lentamente il telefono.";
+                testoStato.innerText = "Scanner attivo. Inquadra il codice sul retro.";
             });
         }
 
@@ -191,17 +179,30 @@
             }
         });
 
-        // Corretto il refuso "resultado" in "risultato"
+        // Gestione rilevamento codice con un pizzico di tolleranza
+        let lastCode = null;
+        let count = 0;
         Quagga.onDetected(function(risultato) {
             if (risultato && risultato.codeResult) {
                 const codiceIsbn = risultato.codeResult.code;
-                console.log("Codice captato live HD:", codiceIsbn);
                 
-                stopScanner();
-                cercaESalvaLibro(codiceIsbn, true);
+                // Per evitare letture errate fulminee, verifichiamo che legga lo stesso codice almeno 2 volte di fila
+                if (codiceIsbn === lastCode) {
+                    count++;
+                    if (count >= 2) {
+                        stopScanner();
+                        lastCode = null;
+                        count = 0;
+                        cercaESalvaLibro(codiceIsbn, true);
+                    }
+                } else {
+                    lastCode = codiceIsbn;
+                    count = 0;
+                }
             }
         });
 
+        // Cerca a mano
         btnRicerca.addEventListener('click', function() {
             const testoCercato = inputRicerca.value.trim();
             if (testoCercato.length > 2) {
