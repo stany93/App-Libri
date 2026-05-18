@@ -155,65 +155,66 @@
             }
         }
 
-        // --- STRUTTURA DI RICERCA MULTI-LIVELLO AGGIORNATA ---
+        // --- SISTEMA DI RICERCA IBRIDO INTER-API ---
         async function preparaConfermaLibro(queryCercata, isIsbn = false) {
             statoCaricamento.classList.remove('hidden');
-            testoStato.innerText = "Ricerca dettagli e copertina online...";
+            testoStato.innerText = "Interrogazione database globali...";
+
+            // Pulizia totale da spazi o caratteri strani
+            const queryPulita = queryCercata.toString().trim().replace(/[-\s]/g, '');
 
             libroInSospeso = {
                 titolo: "Titolo da verificare",
                 autore: "Autore sconosciuto",
                 trama: "",
-                isbn: isIsbn ? queryCercata : "Non disponibile",
+                isbn: isIsbn ? queryPulita : "Non disponibile",
                 copertinaUrl: "",
                 stato: "Da leggere",
                 riflessioni: ""
             };
 
             try {
-                let datiApi = null;
-                
-                // Livello 1: Ricerca canonica per campo ISBN
-                if (isIsbn) {
-                    let urlApi = `https://www.googleapis.com/books/v1/volumes?q=isbn:${queryCercata}`;
-                    let rispostaApi = await fetch(urlApi);
-                    datiApi = await rispostaApi.json();
-                }
+                let trovato = false;
+                let volumeInfo = null;
 
-                // Livello 2: Fallback ricerca libera per numero codice
-                if (isIsbn && (!datiApi || !datiApi.items || datiApi.items.length === 0)) {
-                    let urlApi = `https://www.googleapis.com/books/v1/volumes?q=${queryCercata}&maxResults=1`;
-                    let rispostaApi = await fetch(urlApi);
-                    datiApi = await rispostaApi.json();
-                }
+                // ASSALTO 1: Google Books (Metodo standard)
+                let urlGoogle = isIsbn ? `https://www.googleapis.com/books/v1/volumes?q=isbn:${queryPulita}` : `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryPulita)}&maxResults=1`;
+                let rispGoogle = await fetch(urlGoogle);
+                let datiGoogle = await rispGoogle.json();
 
-                // Livello 3: Se è proprio l'ISBN di Ibra (9788817052733) e Google Books fa cilecca, forziamo la ricerca testuale mirata
-                if (isIsbn && queryCercata === "9788817052733" && (!datiApi || !datiApi.items || datiApi.items.length === 0)) {
-                    let urlApi = `https://www.googleapis.com/books/v1/volumes?q=Io+Ibra+Rizzoli&maxResults=1`;
-                    let rispostaApi = await fetch(urlApi);
-                    datiApi = await rispostaApi.json();
-                }
-
-                // Se non è un ISBN, eseguiamo la normale ricerca testuale manuale inserita dall'utente
-                if (!isIsbn) {
-                    let urlApi = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryCercata)}&maxResults=1`;
-                    let rispostaApi = await fetch(urlApi);
-                    datiApi = await rispostaApi.json();
-                }
-
-                if (datiApi && datiApi.items && datiApi.items.length > 0) {
-                    const volumeInfo = datiApi.items[0].volumeInfo;
+                if (datiGoogle.items && datiGoogle.items.length > 0) {
+                    volumeInfo = datiGoogle.items[0].volumeInfo;
                     libroInSospeso.titolo = volumeInfo.title || "Titolo Sconosciuto";
                     libroInSospeso.autore = volumeInfo.authors ? volumeInfo.authors[0] : "Autore Sconosciuto";
                     libroInSospeso.trama = volumeInfo.description || "";
                     if (volumeInfo.industryIdentifiers) libroInSospeso.isbn = volumeInfo.industryIdentifiers[0].identifier;
-                    
                     if (volumeInfo.imageLinks && volumeInfo.imageLinks.thumbnail) {
                         libroInSospeso.copertinaUrl = volumeInfo.imageLinks.thumbnail.replace("http://", "https://");
                     }
+                    trovato = true;
                 }
 
-                // Aggiornamento Campi UI
+                // ASSALTO 2 (FALLBACK): Open Library API (Se Google Books fa cilecca su ISBN)
+                if (isIsbn && !trovato) {
+                    console.log("Google Books vuoto. Tento il recupero alternativo su Open Library...");
+                    let urlOL = `https://openlibrary.org/api/books?bibkeys=ISBN:${queryPulita}&format=json&jscmd=data`;
+                    let rispOL = await fetch(urlOL);
+                    let datiOL = await rispOL.json();
+                    let chiaveBook = `ISBN:${queryPulita}`;
+
+                    if (datiOL[chiaveBook]) {
+                        const bookData = datiOL[chiaveBook];
+                        libroInSospeso.titolo = bookData.title || "Titolo Sconosciuto";
+                        libroInSospeso.autore = bookData.authors ? bookData.authors[0].name : "Autore Sconosciuto";
+                        libroInSospeso.trama = bookData.notes || "";
+                        if (bookData.cover && bookData.cover.medium) {
+                            libroInSospeso.copertinaUrl = bookData.cover.medium;
+                        }
+                        trovato = true;
+                    }
+                }
+
+                // Popolamento UI Schermata di Conferma
                 document.getElementById('conf-titolo').value = libroInSospeso.titolo;
                 document.getElementById('conf-autore').value = libroInSospeso.autore;
                 document.getElementById('conf-stato').value = "Da leggere";
@@ -350,7 +351,7 @@
         window.cambiaStatoLibro = async function(id, nuovoStato) {
             try {
                 const docRef = doc(db, "libri", id);
-                await updateDoc(docRef, { stato: nuovoStato });
+                await updateDoc(docRef, { stato: nuevoStato });
                 const libro = tuttiILibri.find(l => l.id === id);
                 if(libro) libro.stato = nuevoStato;
                 renderLibri();
