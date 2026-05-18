@@ -52,7 +52,7 @@
                 <h2 class="text-xl font-bold text-gray-800 mb-4 text-center">Confermi l'inserimento?</h2>
                 
                 <div class="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-4 flex flex-col items-center">
-                    <img id="conf-copertina" class="w-28 h-40 object-cover rounded-lg shadow-md mb-4 hidden" src="" alt="Copertina libro">
+                    <img id="conf-copertina" class="w-28 h-40 object-cover rounded-lg shadow-md mb-4 hidden" src="" alt="Copertina libro" onerror="this.style.display='none'">
                     
                     <div class="w-full">
                         <label class="text-xs font-bold text-gray-400 uppercase">Titolo</label>
@@ -155,7 +155,6 @@
             }
         }
 
-        // --- SISTEMA DI RICERCA CON EMERGENZA AGGANCIO DIRETTO ---
         async function preparaConfermaLibro(queryCercata, isIsbn = false) {
             statoCaricamento.classList.remove('hidden');
             testoStato.innerText = "Interrogazione database globali...";
@@ -172,26 +171,39 @@
                 riflessioni: ""
             };
 
-            // BLOCCO CASO SPECIALE: Se è l'ISBN di Ibra, forziamo i dati reali a prescindere dai server esterni!
+            // Link pubblico alternativo e sicuro per la copertina di Ibra
             if (isIsbn && queryPulita === "9788817052733") {
                 libroInSospeso.titolo = "Io, Ibra";
                 libroInSospeso.autore = "Zlatan Ibrahimović";
                 libroInSospeso.trama = "L'autobiografia ufficiale di uno dei campioni più iconici del calcio mondiale.";
-                libroInSospeso.copertinaUrl = "https://upload.wikimedia.org/wikipedia/it/9/92/Io_ibra.jpg";
-                
+                libroInSospeso.copertinaUrl = "https://images-na.ssl-images-amazon.com/images/P/8817052733.01._SX150_SCLZZZZZZZ_.jpg";
                 mostraSchermataConferma();
                 return;
             }
 
             try {
                 let trovato = false;
+                let datiGoogle = null;
 
-                // Tentativo 1: Google Books
-                let urlGoogle = isIsbn ? `https://www.googleapis.com/books/v1/volumes?q=isbn:${queryPulita}` : `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryPulita)}&maxResults=1`;
-                let rispGoogle = await fetch(urlGoogle);
-                let datiGoogle = await rispGoogle.json();
+                if (isIsbn) {
+                    let urlGoogle = `https://www.googleapis.com/books/v1/volumes?q=isbn:${queryPulita}`;
+                    let rispGoogle = await fetch(urlGoogle);
+                    datiGoogle = await rispGoogle.json();
+                }
 
-                if (datiGoogle.items && datiGoogle.items.length > 0) {
+                if (isIsbn && (!datiGoogle || !datiGoogle.items || datiGoogle.items.length === 0)) {
+                    let urlGoogle = `https://www.googleapis.com/books/v1/volumes?q=${queryPulita}&maxResults=1`;
+                    let rispGoogle = await fetch(urlGoogle);
+                    datiGoogle = await rispGoogle.json();
+                }
+
+                if (!isIsbn) {
+                    let urlGoogle = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryPulita)}&maxResults=1`;
+                    let rispGoogle = await fetch(urlGoogle);
+                    datiGoogle = await rispGoogle.json();
+                }
+
+                if (datiGoogle && datiGoogle.items && datiGoogle.items.length > 0) {
                     const volumeInfo = datiGoogle.items[0].volumeInfo;
                     libroInSospeso.titolo = volumeInfo.title || "Titolo Sconosciuto";
                     libroInSospeso.autore = volumeInfo.authors ? volumeInfo.authors[0] : "Autore Sconosciuto";
@@ -203,7 +215,6 @@
                     trovato = true;
                 }
 
-                // Tentativo 2: Open Library
                 if (isIsbn && !trovato) {
                     let urlOL = `https://openlibrary.org/api/books?bibkeys=ISBN:${queryPulita}&format=json&jscmd=data`;
                     let rispOL = await fetch(urlOL);
@@ -310,8 +321,9 @@
                 if(libro.stato === "Letto") badgeColor = "bg-green-100 text-green-700";
                 if(libro.stato === "Da rileggere") badgeColor = "bg-purple-100 text-purple-700";
 
+                // Gestione robusta dell'immagine di fallback se salta il link
                 const copertinaHtml = libro.copertinaUrl 
-                    ? `<img src="${libro.copertinaUrl}" class="w-16 h-24 object-cover rounded-md shadow-sm border border-gray-100 flex-shrink-0" alt="Copertina">`
+                    ? `<img src="${libro.copertinaUrl}" class="w-16 h-24 object-cover rounded-md shadow-sm border border-gray-100 flex-shrink-0" alt="Copertina" onerror="this.onerror=null; this.parentContext.innerHTML='<div class=\'w-16 h-24 bg-gray-200 rounded-md flex items-center justify-center text-[10px] text-gray-400 text-center font-medium p-1 flex-shrink-0 border border-gray-100\'>📖 No Cover</div>'; this.remove();">`
                     : `<div class="w-16 h-24 bg-gray-200 rounded-md flex items-center justify-center text-[10px] text-gray-400 text-center font-medium p-1 flex-shrink-0 border border-gray-100">📖 No Cover</div>`;
 
                 card.innerHTML = `
@@ -362,7 +374,7 @@
                 const docRef = doc(db, "libri", id);
                 await updateDoc(docRef, { stato: nuovoStato });
                 const libro = tuttiILibri.find(l => l.id === id);
-                if(libro) libro.stato = nuevoStato;
+                if(libro) libro.stato = nuovoStato;
                 renderLibri();
             } catch(e) { alert("Errore modifica stato: " + e.message); }
         }
