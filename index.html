@@ -3,36 +3,65 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Scanner Libri (ISBN)</title>
+    <title>Scanner Libri Live</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2/dist/quagga.min.js"></script>
+    <style>
+        /* Stile per centrare e gestire il video della fotocamera */
+        #interactive.viewport video {
+            width: 100%;
+            height: auto;
+            border-radius: 12px;
+        }
+        #interactive.viewport canvas.drawingBuffer {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: auto;
+        }
+    </style>
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col items-center p-6">
 
-    <main class="w-full max-w-md bg-white rounded-2xl shadow-md p-6 text-center mt-10">
+    <main class="w-full max-w-md bg-white rounded-2xl shadow-md p-6 text-center mt-4">
         <h1 class="text-2xl font-bold text-gray-800 mb-2">Aggiungi un Libro</h1>
-        <p class="text-sm text-gray-500 mb-6">Gira il libro e **fotografa il codice a barre sul retro** per salvarlo</p>
+        <p class="text-sm text-gray-500 mb-6">Inquadra il codice a barre sul retro o cercalo a mano</p>
 
-        <label class="cursor-pointer block bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-6 rounded-xl shadow transition duration-200">
-            📸 Fotografa Codice a Barre
-            <input type="file" accept="image/*" capture="environment" id="foto-copertina" class="hidden">
-        </label>
-
-        <div id="stato-caricamento" class="mt-4 text-sm text-blue-600 font-medium hidden">
-            ⏳ <span id="testo-stato">Elaborazione immagine...</span>
+        <div class="relative w-full overflow-hidden bg-black rounded-xl mb-4 hidden" id="container-scanner">
+            <div id="interactive" class="viewport relative w-full"></div>
+            <div class="absolute inset-0 border-2 border-red-500 opacity-50 pointer-events-none m-auto w-3/4 h-16 rounded-md"></div>
         </div>
 
-        <div id="zona-anteprima" class="mt-6 hidden">
-            <p class="text-xs text-gray-400 mb-2">Immagine catturata:</p>
-            <img id="anteprima-immagine" class="w-full max-h-64 object-cover rounded-lg border border-gray-200 shadow-sm mb-4" src="#" alt="Anteprima">
-            
-            <div id="info-libro" class="text-left bg-gray-50 p-4 rounded-xl border border-gray-100 hidden">
-                <span class="text-xs font-bold uppercase tracking-wide text-green-600">Salvato in Firestore!</span>
-                <h3 id="res-titolo" class="font-bold text-gray-800 text-lg mt-1"></h3>
-                <p id="res-autore" class="text-sm text-gray-600 mb-2"></p>
-                <p id="res-isbn" class="text-xs text-blue-500 font-mono mb-2"></p>
-                <p id="res-trama" class="text-xs text-gray-500 line-clamp-5"></p>
+        <div class="flex flex-col gap-2 mb-6">
+            <button id="btn-toggle-scan" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-6 rounded-xl shadow transition">
+                📸 Attiva Scanner Live
+            </button>
+        </div>
+
+        <div class="relative flex py-2 items-center mb-6">
+            <div class="flex-grow border-t border-gray-200"></div>
+            <span class="flex-shrink mx-4 text-gray-400 text-xs uppercase font-bold tracking-wider">oppure</span>
+            <div class="flex-grow border-t border-gray-200"></div>
+        </div>
+
+        <div class="flex gap-2 text-left mb-4">
+            <div class="flex-grow">
+                <input type="text" id="input-ricerca" placeholder="Titolo, autore o codice ISBN..." class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
             </div>
+            <button id="btn-ricerca" class="bg-gray-800 hover:bg-gray-900 text-white px-5 rounded-xl font-medium text-sm transition">Cerca</button>
+        </div>
+
+        <div id="stato-caricamento" class="mt-4 text-sm text-blue-600 font-medium hidden">
+            ⏳ <span id="testo-stato">Inizializzazione...</span>
+        </div>
+
+        <div id="zona-risultato" class="mt-6 text-left bg-gray-50 p-4 rounded-xl border border-gray-100 hidden">
+            <span class="text-xs font-bold uppercase tracking-wide text-green-600 block mb-1">✅ Salvato in Firestore!</span>
+            <h3 id="res-titolo" class="font-bold text-gray-800 text-lg"></h3>
+            <p id="res-autore" class="text-sm text-gray-600 mb-2"></p>
+            <p id="res-isbn" class="text-xs text-blue-500 font-mono mb-2"></p>
+            <p id="res-trama" class="text-xs text-gray-500 line-clamp-5"></p>
         </div>
     </main>
 
@@ -40,7 +69,6 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        // Configurazione Firebase verificata
         const firebaseConfig = {
             apiKey: "AIzaSyARnpN14sxR2I9mEsoHq1tmG8EIrqm_QPY",
             authDomain: "app-libri-35839.firebaseapp.com",
@@ -54,88 +82,138 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        const inputFoto = document.getElementById('foto-copertina');
-        const zonaAnteprima = document.getElementById('zona-anteprima');
-        const anteprimaImmagine = document.getElementById('anteprima-immagine');
+        // Elementi DOM
+        const btnToggleScan = document.getElementById('btn-toggle-scan');
+        const containerScanner = document.getElementById('container-scanner');
+        const inputRicerca = document.getElementById('input-ricerca');
+        const btnRicerca = document.getElementById('btn-ricerca');
+        const zonaRisultato = document.getElementById('zona-risultato');
         const statoCaricamento = document.getElementById('stato-caricamento');
         const testoStato = document.getElementById('testo-stato');
-        const infoLibro = document.getElementById('info-libro');
 
-        inputFoto.addEventListener('change', async function(e) {
-            const file = e.target.files[0];
-            if (file) {
-                // Imposta la UI
-                const urlImmagine = URL.createObjectURL(file);
-                anteprimaImmagine.src = urlImmagine;
-                zonaAnteprima.classList.remove('hidden');
-                statoCaricamento.classList.remove('hidden');
-                infoLibro.classList.add('hidden');
+        let isScanning = false;
 
-                try {
-                    testoStato.innerText = "Analisi del codice a barre (ISBN)...";
+        // Funzione per interpellare Google Books e salvare su Firebase
+        async function cercaESalvaLibro(query, isIsbn = false) {
+            statoCaricamento.classList.remove('hidden');
+            testoStato.innerText = "Ricerca dettagli del libro...";
+            zonaRisultato.classList.add('hidden');
 
-                    // FASE 1: Lettura del Codice a barre con Quagga
-                    Quagga.decodeSingle({
-                        decoder: {
-                            readers: ["ean_reader", "ean_8_reader"] // I formati standard dei libri (EAN-13)
-                        },
-                        locate: true,
-                        src: urlImmagine
-                    }, async function(risultato) {
-                        try {
-                            if (!risultato || !risultato.codeResult) {
-                                throw new Error("Codice a barre non rilevato. Riprova tenendo la foto dritta, ferma e vicina.");
-                            }
+            try {
+                const urlApi = isIsbn ? `https://www.googleapis.com/books/v1/volumes?q=isbn:${query}` : `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=1`;
+                const rispostaApi = await fetch(urlApi);
+                const datiApi = await rispostaApi.json();
 
-                            const isbn = risultato.codeResult.code;
-                            console.log("ISBN rilevato:", isbn);
-
-                            // FASE 2: Ricerca su Google Books tramite il codice ISBN appena letto
-                            testoStato.innerText = "Codice trovato! Ricerca dettagli libro...";
-                            const urlApi = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`;
-                            
-                            const rispostaApi = await fetch(urlApi);
-                            const datiApi = await rispostaApi.json();
-
-                            if (!datiApi.items || datiApi.items.length === 0) {
-                                throw new Error(`Codice letto (${isbn}), ma nessun libro trovato nel database globale.`);
-                            }
-
-                            const volumeInfo = datiApi.items[0].volumeInfo;
-                            
-                            const libroDaSalvare = {
-                                titolo: volumeInfo.title || "Titolo Sconosciuto",
-                                autore: volumeInfo.authors ? volumeInfo.authors[0] : "Autore Sconosciuto",
-                                trama: volumeInfo.description || "Nessuna trama disponibile.",
-                                isbn: isbn,
-                                dataInserimento: new Date()
-                            };
-
-                            // FASE 3: Salvataggio su Firestore
-                            testoStato.innerText = "Salvataggio nel tuo database...";
-                            const docRef = await addDoc(collection(db, "libri"), libroDaSalvare);
-                            console.log("Libro salvato con successo! ID: ", docRef.id);
-
-                            // Mostriamo i dati reali recuperati sullo schermo
-                            document.getElementById('res-titolo').innerText = libroDaSalvare.titolo;
-                            document.getElementById('res-autore').innerText = libroDaSalvare.autore;
-                            document.getElementById('res-isbn').innerText = "ISBN: " + libroDaSalvare.isbn;
-                            document.getElementById('res-trama').innerText = libroDaSalvare.trama;
-                            
-                            statoCaricamento.classList.add('hidden');
-                            infoLibro.classList.remove('hidden');
-
-                        } catch (err) {
-                            console.error(err);
-                            testoStato.innerText = "❌ " + err.message;
-                        }
-                    });
-
-                } catch (error) {
-                    console.error("Errore generale:", error);
-                    testoStato.innerText = "❌ Errore durante l'elaborazione.";
+                if (!datiApi.items || datiApi.items.length === 0) {
+                    throw new Error("Libro non trovato nei database globali.");
                 }
+
+                const volumeInfo = datiApi.items[0].volumeInfo;
+                const identificatori = volumeInfo.industryIdentifiers;
+                const isbnTrovato = identificatori ? identificatori[0].identifier : query;
+
+                const libroDaSalvare = {
+                    titolo: volumeInfo.title || "Titolo Sconosciuto",
+                    autore: volumeInfo.authors ? volumeInfo.authors[0] : "Autore Sconosciuto",
+                    trama: volumeInfo.description || "Nessuna trama disponibile.",
+                    isbn: isbnTrovato,
+                    dataInserimento: new Date()
+                };
+
+                testoStato.innerText = "Salvataggio nel tuo archivio...";
+                await addDoc(collection(db, "libri"), libroDaSalvare);
+
+                // Mostra i risultati
+                document.getElementById('res-titolo').innerText = libroDaSalvare.titolo;
+                document.getElementById('res-autore').innerText = libroDaSalvare.autore;
+                document.getElementById('res-isbn').innerText = "ISBN: " + libroDaSalvare.isbn;
+                document.getElementById('res-trama').innerText = libroDaSalvare.trama;
+                
+                statoCaricamento.classList.add('hidden');
+                zonaRisultato.classList.remove('hidden');
+
+            } catch (error) {
+                console.error(error);
+                testoStato.innerText = "❌ " + error.message;
             }
+        }
+
+        // Funzione per avviare la fotocamera live
+        function startScanner() {
+            containerScanner.classList.remove('hidden');
+            statoCaricamento.classList.remove('hidden');
+            testoStato.innerText = "Avvio fotocamera...";
+
+            Quagga.init({
+                inputStream: {
+                    name: "Live",
+                    type: "LiveStream",
+                    target: document.querySelector('#interactive'),
+                    constraints: {
+                        facingMode: "environment", // Forza la fotocamera posteriore
+                        aspectRatio: { min: 1, max: 2 }
+                    },
+                },
+                decoder: {
+                    readers: ["ean_reader"] // Legge i codici a barre dei libri
+                }
+            }, function(err) {
+                if (err) {
+                    console.error(err);
+                    testoStato.innerText = "❌ Impossibile accedere alla fotocamera.";
+                    return;
+                }
+                Quagga.start();
+                isScanning = true;
+                btnToggleScan.innerText = "🛑 Disattiva Scanner";
+                btnToggleScan.classList.replace('bg-blue-600', 'bg-red-600');
+                testoStato.innerText = "Scanner attivo. Inquadra il codice.";
+            });
+        }
+
+        function stopScanner() {
+            Quagga.stop();
+            isScanning = false;
+            containerScanner.classList.add('hidden');
+            statoCaricamento.classList.add('hidden');
+            btnToggleScan.innerText = "📸 Attiva Scanner Live";
+            btnToggleScan.classList.replace('bg-red-600', 'bg-blue-600');
+        }
+
+        // Gestione Click Pulsante Scanner
+        btnToggleScan.addEventListener('click', function() {
+            if (isScanning) {
+                stopScanner();
+            } else {
+                startScanner();
+            }
+        });
+
+        // Evento di rilevamento codice a barre riuscito
+        Quagga.onDetected(function(risultato) {
+            if (risultato && resultado.codeResult) {
+                const codiceIsbn = risultato.codeResult.code;
+                console.log("Codice captato live:", codiceIsbn);
+                
+                // Fermiamo subito lo scanner per evitare letture doppie
+                stopScanner();
+                
+                // Avviamo la ricerca e il salvataggio
+                cercaESalvaLibro(codiceIsbn, true);
+            }
+        });
+
+        // Gestore ricerca manuale
+        btnRicerca.addEventListener('click', function() {
+            const testoCercato = inputRicerca.value.trim();
+            if (testoCercato.length > 2) {
+                if (isScanning) stopScanner();
+                cercaESalvaLibro(testoCercato, false);
+            }
+        });
+
+        inputRicerca.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') btnRicerca.click();
         });
     </script>
 </body>
