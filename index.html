@@ -35,21 +35,21 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        // Configurazione di Firebase inserita con le tue chiavi reali
+        // Configurazione allineata al tuo projectId reale: app-libri-35839
         const firebaseConfig = {
-            apiKey: "AIzaSyDE_tS2S36oXv8oZ6Bf0A3WwL9TzXn7Yg",
-            authDomain: "app-libri-79679.firebaseapp.com",
-            projectId: "app-libri-79679",
-            storageBucket: "app-libri-79679.firebasestorage.app",
-            messagingSenderId: "1074127909382",
-            appId: "1:1074127909382:web:0f5ca1207e449c2ebf91ec"
+            apiKey: "AIzaSyARnpN14sxR2I9mEsoHq1tmG8EIrqm_QPY",
+            authDomain: "app-libri-35839.firebaseapp.com",
+            projectId: "app-libri-35839",
+            storageBucket: "app-libri-35839.firebasestorage.app",
+            messagingSenderId: "525601289129",
+            appId: "1:525601289129:web:394227adea5b459950ab88",
+            measurementId: "G-VELZSE9Y66"
         };
 
         // Inizializzazione Firebase e Firestore
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        // Elementi dell'interfaccia
         const inputFoto = document.getElementById('foto-copertina');
         const zonaAnteprima = document.getElementById('zona-anteprima');
         const anteprimaImmagine = document.getElementById('anteprima-immagine');
@@ -59,14 +59,12 @@
         inputFoto.addEventListener('change', async function(e) {
             const file = e.target.files[0];
             if (file) {
-                // 1. Mostra l'anteprima locale sul telefono
                 anteprimaImmagine.src = URL.createObjectURL(file);
                 zonaAnteprima.classList.remove('hidden');
                 statoCaricamento.classList.remove('hidden');
                 infoLibro.classList.add('hidden');
 
                 try {
-                    // Per ora eseguiamo un salvataggio di test su Firestore per verificare la connessione!
                     const libroTest = {
                         titolo: "Libro di Test",
                         autore: "Autore Anonimo",
@@ -74,11 +72,9 @@
                         dataInserimento: new Date()
                     };
 
-                    // Salviamo il documento nella collezione "libri" su Firestore
                     const docRef = await addDoc(collection(db, "libri"), libroTest);
                     console.log("Documento salvato con ID: ", docRef.id);
 
-                    // Mostriamo i dati simulati sullo schermo del telefono
                     document.getElementById('res-titolo').innerText = libroTest.titolo;
                     document.getElementById('res-autore').innerText = libroTest.autore;
                     document.getElementById('res-trama').innerText = libroTest.trama;
@@ -88,7 +84,7 @@
 
                 } catch (error) {
                     console.error("Errore durante il salvataggio:", error);
-                    statoCaricamento.innerText = "Errore di connessione al database. Verifica di aver attivato Firestore in modalità test.";
+                    statoCaricamento.innerText = "Errore di connessione. Controlla di aver cliccato su Crea Database dentro la sezione Firestore.";
                 }
             }
         });
