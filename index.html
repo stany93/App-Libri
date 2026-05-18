@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Scanner Libri</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://unpkg.com/tesseract.js@5.0.5/dist/tesseract.min.js"></script>
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col items-center p-6">
 
@@ -17,16 +18,19 @@
             <input type="file" accept="image/*" capture="environment" id="foto-copertina" class="hidden">
         </label>
 
-        <div id="stato-caricamento" class="mt-4 text-sm text-blue-600 font-medium hidden">Elaborazione immagine in corso...</div>
+        <div id="stato-caricamento" class="mt-4 text-sm text-blue-600 font-medium hidden">
+            ⏳ <span id="testo-stato">Elaborazione immagine...</span>
+        </div>
 
         <div id="zona-anteprima" class="mt-6 hidden">
             <p class="text-xs text-gray-400 mb-2">Immagine catturata:</p>
             <img id="anteprima-immagine" class="w-full max-h-64 object-cover rounded-lg border border-gray-200 shadow-sm mb-4" src="#" alt="Anteprima">
             
             <div id="info-libro" class="text-left bg-gray-50 p-4 rounded-xl border border-gray-100 hidden">
-                <h3 id="res-titolo" class="font-bold text-gray-800 text-lg"></h3>
+                <span class="text-xs font-bold uppercase tracking-wide text-green-600">Salvato in Firestore!</span>
+                <h3 id="res-titolo" class="font-bold text-gray-800 text-lg mt-1"></h3>
                 <p id="res-autore" class="text-sm text-gray-600 mb-2"></p>
-                <p id="res-trama" class="text-xs text-gray-500 line-clamp-3"></p>
+                <p id="res-trama" class="text-xs text-gray-500 line-clamp-5"></p>
             </div>
         </div>
     </main>
@@ -35,7 +39,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        // Configurazione allineata al tuo projectId reale: app-libri-35839
+        // Le tue chiavi reali verificate
         const firebaseConfig = {
             apiKey: "AIzaSyARnpN14sxR2I9mEsoHq1tmG8EIrqm_QPY",
             authDomain: "app-libri-35839.firebaseapp.com",
@@ -46,7 +50,6 @@
             measurementId: "G-VELZSE9Y66"
         };
 
-        // Inizializzazione Firebase e Firestore
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
@@ -54,37 +57,73 @@
         const zonaAnteprima = document.getElementById('zona-anteprima');
         const anteprimaImmagine = document.getElementById('anteprima-immagine');
         const statoCaricamento = document.getElementById('stato-caricamento');
+        const testoStato = document.getElementById('testo-stato');
         const infoLibro = document.getElementById('info-libro');
 
         inputFoto.addEventListener('change', async function(e) {
             const file = e.target.files[0];
             if (file) {
+                // Prepara la UI
                 anteprimaImmagine.src = URL.createObjectURL(file);
                 zonaAnteprima.classList.remove('hidden');
                 statoCaricamento.classList.remove('hidden');
                 infoLibro.classList.add('hidden');
 
                 try {
-                    const libroTest = {
-                        titolo: "Libro di Test",
-                        autore: "Autore Anonimo",
-                        trama: "Se vedi questo record su Firestore, la connessione è riuscita alla perfezione!",
-                        dataInserimento: new Date()
+                    // FASE 1: Lettura del testo con Tesseract OCR
+                    testoStato.innerText = "Lettura del testo sulla copertina (OCR)...";
+                    const worker = await Tesseract.createWorker('ita'); // Lingua italiana
+                    const ret = await worker.recognize(file);
+                    const testoEstratto = ret.data.text.trim();
+                    await worker.terminate();
+
+                    if (!testoEstratto || testoEstratto.length < 3) {
+                        throw new Error("Non sono riuscito a leggere del testo chiaro sulla copertina.");
+                    }
+
+                    console.log("Testo letto dall'OCR:", testoEstratto);
+
+                    // FASE 2: Ricerca su Google Books API usando il testo trovato
+                    testoStato.innerText = "Ricerca del libro nel database mondiale...";
+                    // Puliamo il testo eliminando i ritorni a capo per fare una query pulita
+                    const queryPulita = testoEstratto.replace(/\n/g, ' ');
+                    const urlApi = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryPulita)}&maxResults=1`;
+                    
+                    const rispostaApi = await fetch(urlApi);
+                    const datiApi = await rispostaApi.json();
+
+                    if (!datiApi.items || datiApi.items.length === 0) {
+                        throw new Error("Nessun libro trovato corrispondente al testo letto.");
+                    }
+
+                    // Estraiamo le info del primo libro trovato
+                    const volumeInfo = datiApi.items[0].volumeInfo;
+                    
+                    const libroDaSalvare = {
+                        titolo: volumeInfo.title || "Titolo Sconosciuto",
+                        autore: volumeInfo.authors ? volumeInfo.authors[0] : "Autore Sconosciuto",
+                        trama: volumeInfo.description || "Nessuna trama disponibile.",
+                        dataInserimento: new Date(),
+                        testoOcrOriginale: testoEstratto // Teniamo traccia di cosa aveva letto l'app
                     };
 
-                    const docRef = await addDoc(collection(db, "libri"), libroTest);
-                    console.log("Documento salvato con ID: ", docRef.id);
+                    // FASE 3: Salvataggio su Firestore
+                    testoStato.innerText = "Salvataggio del libro nel tuo archivio...";
+                    const docRef = await addDoc(collection(db, "libri"), libroDaSalvare);
+                    console.log("Libro reale salvato con ID: ", docRef.id);
 
-                    document.getElementById('res-titolo').innerText = libroTest.titolo;
-                    document.getElementById('res-autore').innerText = libroTest.autore;
-                    document.getElementById('res-trama').innerText = libroTest.trama;
+                    // Mostriamo i dati reali recuperati sullo schermo
+                    document.getElementById('res-titolo').innerText = libroDaSalvare.titolo;
+                    document.getElementById('res-autore').innerText = libroDaSalvare.autore;
+                    document.getElementById('res-trama').innerText = libroDaSalvare.trama;
                     
                     statoCaricamento.classList.add('hidden');
                     infoLibro.classList.remove('hidden');
 
                 } catch (error) {
-                    console.error("Errore durante il salvataggio:", error);
-                    statoCaricamento.innerText = "Errore di connessione. Controlla di aver cliccato su Crea Database dentro la sezione Firestore.";
+                    console.error("Errore nel flusso:", error);
+                    testoStato.innerText = "❌ Errore: " + error.message;
+                    // Se fallisce l'OCR, diamo comunque la possibilità di vedere che ha fallito
                 }
             }
         });
