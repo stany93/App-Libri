@@ -155,9 +155,10 @@
             }
         }
 
+        // --- SISTEMA DI RICERCA STRUTTURATO MULTI-LIVELLO ---
         async function preparaConfermaLibro(queryCercata, isIsbn = false) {
             statoCaricamento.classList.remove('hidden');
-            testoStato.innerText = "Interrogazione database globali...";
+            testoStato.innerText = "Connessione ai database letterari...";
 
             const queryPulita = queryCercata.toString().trim().replace(/[-\s]/g, '');
 
@@ -171,7 +172,7 @@
                 riflessioni: ""
             };
 
-            // Link pubblico alternativo e sicuro per la copertina di Ibra
+            // Eccezione per l'ISBN di Ibra (Hardcoded per sicurezza visiva)
             if (isIsbn && queryPulita === "9788817052733") {
                 libroInSospeso.titolo = "Io, Ibra";
                 libroInSospeso.autore = "Zlatan Ibrahimović";
@@ -182,60 +183,64 @@
             }
 
             try {
-                let trovato = false;
-                let datiGoogle = null;
+                let datiVolume = null;
 
                 if (isIsbn) {
-                    let urlGoogle = `https://www.googleapis.com/books/v1/volumes?q=isbn:${queryPulita}`;
-                    let rispGoogle = await fetch(urlGoogle);
-                    datiGoogle = await rispGoogle.json();
-                }
+                    // TENTATIVO 1: Google Books tramite parametro isbn rigido
+                    try {
+                        let res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${queryPulita}`);
+                        let json = await res.json();
+                        if (json.items && json.items.length > 0) datiVolume = json.items[0].volumeInfo;
+                    } catch (e) { console.log("Tentativo 1 fallito:", e); }
 
-                if (isIsbn && (!datiGoogle || !datiGoogle.items || datiGoogle.items.length === 0)) {
-                    let urlGoogle = `https://www.googleapis.com/books/v1/volumes?q=${queryPulita}&maxResults=1`;
-                    let rispGoogle = await fetch(urlGoogle);
-                    datiGoogle = await rispGoogle.json();
-                }
-
-                if (!isIsbn) {
-                    let urlGoogle = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryPulita)}&maxResults=1`;
-                    let rispGoogle = await fetch(urlGoogle);
-                    datiGoogle = await rispGoogle.json();
-                }
-
-                if (datiGoogle && datiGoogle.items && datiGoogle.items.length > 0) {
-                    const volumeInfo = datiGoogle.items[0].volumeInfo;
-                    libroInSospeso.titolo = volumeInfo.title || "Titolo Sconosciuto";
-                    libroInSospeso.autore = volumeInfo.authors ? volumeInfo.authors[0] : "Autore Sconosciuto";
-                    libroInSospeso.trama = volumeInfo.description || "";
-                    if (volumeInfo.industryIdentifiers) libroInSospeso.isbn = volumeInfo.industryIdentifiers[0].identifier;
-                    if (volumeInfo.imageLinks && volumeInfo.imageLinks.thumbnail) {
-                        libroInSospeso.copertinaUrl = volumeInfo.imageLinks.thumbnail.replace("http://", "https://");
+                    // TENTATIVO 2: Google Books tramite stringa di testo libera (se il primo fallisce)
+                    if (!datiVolume) {
+                        try {
+                            let res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${queryPulita}&maxResults=1`);
+                            let json = await res.json();
+                            if (json.items && json.items.length > 0) datiVolume = json.items[0].volumeInfo;
+                        } catch (e) { console.log("Tentativo 2 fallito:", e); }
                     }
-                    trovato = true;
+
+                    // TENTATIVO 3: Open Library API (Sorgente alternativa indipendente)
+                    if (!datiVolume) {
+                        try {
+                            let res = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${queryPulita}&format=json&jscmd=data`);
+                            let json = await res.json();
+                            let chiave = `ISBN:${queryPulita}`;
+                            if (json[chiave]) {
+                                const olData = json[chiave];
+                                libroInSospeso.titolo = olData.title || "Titolo Sconosciuto";
+                                libroInSospeso.autore = olData.authors ? olData.authors[0].name : "Autore Sconosciuto";
+                                if (olData.cover && olData.cover.medium) libroInSospeso.copertinaUrl = olData.cover.medium;
+                                mostraSchermataConferma();
+                                return;
+                            }
+                        } catch (e) { console.log("Tentativo 3 fallito:", e); }
+                    }
+                } else {
+                    // Ricerca manuale classica testuale inserita dall'utente
+                    let res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryPulita)}&maxResults=1`);
+                    let json = await res.json();
+                    if (json.items && json.items.length > 0) datiVolume = json.items[0].volumeInfo;
                 }
 
-                if (isIsbn && !trovato) {
-                    let urlOL = `https://openlibrary.org/api/books?bibkeys=ISBN:${queryPulita}&format=json&jscmd=data`;
-                    let rispOL = await fetch(urlOL);
-                    let datiOL = await rispOL.json();
-                    let chiaveBook = `ISBN:${queryPulita}`;
-
-                    if (datiOL[chiaveBook]) {
-                        const bookData = datiOL[chiaveBook];
-                        libroInSospeso.titolo = bookData.title || "Titolo Sconosciuto";
-                        libroInSospeso.autore = bookData.authors ? bookData.authors[0].name : "Autore Sconosciuto";
-                        if (bookData.cover && bookData.cover.medium) {
-                            libroInSospeso.copertinaUrl = bookData.cover.medium;
-                        }
+                // Se uno dei tentativi Google Books ha avuto successo, estraiamo i dati
+                if (datiVolume) {
+                    libroInSospeso.titolo = datiVolume.title || "Titolo Sconosciuto";
+                    libroInSospeso.autore = datiVolume.authors ? datiVolume.authors[0] : "Autore Sconosciuto";
+                    libroInSospeso.trama = datiVolume.description || "";
+                    if (datiVolume.industryIdentifiers) libroInSospeso.isbn = datiVolume.industryIdentifiers[0].identifier;
+                    if (datiVolume.imageLinks && datiVolume.imageLinks.thumbnail) {
+                        libroInSospeso.copertinaUrl = datiVolume.imageLinks.thumbnail.replace("http://", "https://");
                     }
                 }
 
                 mostraSchermataConferma();
 
             } catch (error) {
-                console.error(error);
-                testoStato.innerText = "❌ Errore: " + error.message;
+                console.error("Errore generale nel flusso di ricerca:", error);
+                mostraSchermataConferma(); // Mostriamo comunque la schermata permettendo la modifica manuale
             }
         }
 
@@ -321,9 +326,8 @@
                 if(libro.stato === "Letto") badgeColor = "bg-green-100 text-green-700";
                 if(libro.stato === "Da rileggere") badgeColor = "bg-purple-100 text-purple-700";
 
-                // Gestione robusta dell'immagine di fallback se salta il link
                 const copertinaHtml = libro.copertinaUrl 
-                    ? `<img src="${libro.copertinaUrl}" class="w-16 h-24 object-cover rounded-md shadow-sm border border-gray-100 flex-shrink-0" alt="Copertina" onerror="this.onerror=null; this.parentContext.innerHTML='<div class=\'w-16 h-24 bg-gray-200 rounded-md flex items-center justify-center text-[10px] text-gray-400 text-center font-medium p-1 flex-shrink-0 border border-gray-100\'>📖 No Cover</div>'; this.remove();">`
+                    ? `<img src="${libro.copertinaUrl}" class="w-16 h-24 object-cover rounded-md shadow-sm border border-gray-100 flex-shrink-0" alt="Copertina" onerror="this.onerror=null; this.src=''; this.style.display='none';">`
                     : `<div class="w-16 h-24 bg-gray-200 rounded-md flex items-center justify-center text-[10px] text-gray-400 text-center font-medium p-1 flex-shrink-0 border border-gray-100">📖 No Cover</div>`;
 
                 card.innerHTML = `
@@ -374,7 +378,7 @@
                 const docRef = doc(db, "libri", id);
                 await updateDoc(docRef, { stato: nuovoStato });
                 const libro = tuttiILibri.find(l => l.id === id);
-                if(libro) libro.stato = nuovoStato;
+                if(libro) libro.stato = nuevoStato;
                 renderLibri();
             } catch(e) { alert("Errore modifica stato: " + e.message); }
         }
