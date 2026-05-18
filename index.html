@@ -37,7 +37,7 @@
                     <div class="absolute inset-0 border border-white/30 pointer-events-none m-auto w-4/5 h-32 rounded-md"></div>
                 </div>
 
-                <button id="btn-toggle-scan" class="w-full bg-black text-white text-xs font-bold tracking-widest py-5 rounded-lg transition active:scale-95 uppercase">
+                <button id="btn-toggle-scan" class="w-full bg-black healthiest text-white text-xs font-bold tracking-widest py-5 rounded-lg transition active:scale-95 uppercase">
                     Avvia Scanner Codice
                 </button>
 
@@ -65,8 +65,13 @@
             <div class="border border-gray-100 rounded-2xl p-6 space-y-6">
                 <h3 class="text-xl font-bold">Verifica dati</h3>
                 
+                <div id="avviso-non-trovato" class="w-full bg-gray-50 text-gray-600 text-xs p-4 rounded-lg hidden border border-gray-200 text-left leading-relaxed">
+                    <span class="font-bold text-black uppercase text-[10px] tracking-wider block mb-1">Codice non registrato online</span>
+                    Questo accade spesso con le ristampe o edizioni speciali. È possibile inserire i dettagli manualmente, oppure annullare e cercare il libro inserendo il <b>Titolo</b> nella barra di ricerca manuale per recuperare la copertina.
+                </div>
+                
                 <div class="flex gap-4">
-                    <div id="confirm-cover-container" class="w-24 h-36 rounded-lg overflow-hidden shadow-sm flex-shrink-0">
+                    <div id="confirm-cover-container" class="w-24 h-36 rounded-lg overflow-hidden shadow-sm flex-shrink-0 bg-gray-100">
                         <img id="conf-copertina" class="w-full h-full object-cover hidden" src="" alt="">
                         <div id="conf-placeholder" class="placeholder-cover w-full h-full">Nessuna Immagine</div>
                     </div>
@@ -84,7 +89,7 @@
 
                 <div class="grid grid-cols-2 gap-4">
                     <div class="col-span-2">
-                        <label class="text-[9px] font-bold text-gray-400 uppercase">Stato Lettura</label>
+                        <label class="text-[9px] font-bold text-gray-400 uppercase">Stato Neve</label>
                         <select id="conf-stato" class="w-full text-sm bg-gray-50 border-none rounded-lg p-3 outline-none">
                             <option value="Da leggere">Da leggere</option>
                             <option value="In lettura">In lettura</option>
@@ -120,8 +125,7 @@
                 </select>
             </div>
 
-            <div id="lista-libri" class="space-y-8">
-                </div>
+            <div id="lista-libri" class="space-y-8"></div>
         </section>
 
         <section id="view-stats" class="tab-view hidden">
@@ -177,7 +181,6 @@
         let tempLibro = null;
         let isScannerOn = false;
 
-        // --- NAVIGAZIONE ---
         window.switchTab = (tab) => {
             document.querySelectorAll('.tab-view').forEach(v => v.classList.add('hidden'));
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active', 'text-black'));
@@ -194,34 +197,46 @@
             if(isScannerOn) stopScan();
         };
 
-        // --- RICERCA E DATABASE ---
-        async function fetchBook(query) {
+        // --- STRUTTURA DI RICERCA INTERNA ---
+        async function fetchBook(queryText) {
             document.getElementById('stato-caricamento').classList.remove('hidden');
-            const cleanQuery = query.replace(/[-\s]/g, '').trim();
+            const cleanQuery = queryText.replace(/[-\s]/g, '').trim();
+            const isNumeric = !isNaN(cleanQuery) && cleanQuery.length >= 10;
             
             try {
-                // Tentativo 1: Google Books
-                const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=1`);
-                const data = await res.json();
+                let targetUrl = isNumeric 
+                    ? `https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanQuery}`
+                    : `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryText)}&maxResults=1`;
+
+                let res = await fetch(targetUrl);
+                let data = await res.json();
                 
                 if (data.items && data.items.length > 0) {
                     const info = data.items[0].volumeInfo;
                     tempLibro = {
-                        titolo: info.title || "Senza titolo",
-                        autore: info.authors ? info.authors.join(", ") : "Autore sconosciuto",
-                        isbn: info.industryIdentifiers ? info.industryIdentifiers[0].identifier : cleanQuery,
+                        titolo: info.title || "",
+                        autore: info.authors ? info.authors.join(", ") : "",
+                        isbn: info.industryIdentifiers ? info.industryIdentifiers[0].identifier : (isNumeric ? cleanQuery : "Non disponibile"),
                         copertinaUrl: info.imageLinks ? info.imageLinks.thumbnail.replace("http://", "https://") : "",
                         stato: "Da leggere",
                         riflessioni: ""
                     };
-                    showConfirm();
                 } else {
-                    // Se non trova nulla, crea scheda vuota per inserimento manuale
-                    tempLibro = { titolo: "", autore: "", isbn: cleanQuery, copertinaUrl: "", stato: "Da leggere", riflessioni: "" };
-                    showConfirm();
+                    // Fallback se la ricerca numerica fallisce
+                    tempLibro = { 
+                        titolo: isNumeric ? "" : queryText, 
+                        autore: "", 
+                        isbn: isNumeric ? cleanQuery : "Non disponibile", 
+                        copertinaUrl: isNumeric ? `https://covers.openlibrary.org/b/isbn/${cleanQuery}-M.jpg` : "", 
+                        stato: "Da leggere", 
+                        riflessioni: "" 
+                    };
                 }
+                showConfirm();
             } catch (e) {
-                alert("Errore di connessione");
+                console.error(e);
+                tempLibro = { titolo: isNumeric ? "" : queryText, autore: "", isbn: isNumeric ? cleanQuery : "Non disponibile", copertinaUrl: "", stato: "Da leggere", riflessioni: "" };
+                showConfirm();
             } finally {
                 document.getElementById('stato-caricamento').classList.add('hidden');
             }
@@ -234,7 +249,16 @@
             document.getElementById('conf-titolo').value = tempLibro.titolo;
             document.getElementById('conf-autore').value = tempLibro.autore;
             document.getElementById('conf-riflessioni').value = "";
+            document.getElementById('conf-isbn').innerText = "Riferimento: " + tempLibro.isbn;
             
+            // Gestione visibilità banner di avviso se i campi principali sono vuoti
+            const avviso = document.getElementById('avviso-non-trovato');
+            if(!tempLibro.titolo) {
+                avviso.classList.remove('hidden');
+            } else {
+                avviso.classList.add('hidden');
+            }
+
             const img = document.getElementById('conf-copertina');
             const placeholder = document.getElementById('conf-placeholder');
             
@@ -250,11 +274,16 @@
         }
 
         document.getElementById('btn-conferma-save').onclick = async () => {
-            tempLibro.titolo = document.getElementById('conf-titolo').value;
-            tempLibro.autore = document.getElementById('conf-autore').value;
+            tempLibro.titolo = document.getElementById('conf-titolo').value.trim() || "Titolo non inserito";
+            tempLibro.autore = document.getElementById('conf-autore').value.trim() || "Autore sconosciuto";
             tempLibro.stato = document.getElementById('conf-stato').value;
-            tempLibro.riflessioni = document.getElementById('conf-riflessioni').value;
+            tempLibro.riflessioni = document.getElementById('conf-riflessioni').value.trim();
             tempLibro.createdAt = new Date();
+
+            // Se l'utente ha corretto il titolo a mano e l'immagine mancava, genera il placeholder grafico
+            if(!tempLibro.copertinaUrl) {
+                tempLibro.copertinaUrl = ""; 
+            }
 
             await addDoc(collection(db, "libri"), tempLibro);
             switchTab('library');
@@ -262,7 +291,7 @@
 
         document.getElementById('btn-annulla-save').onclick = () => switchTab('add');
 
-        // --- GESTIONE LIBRERIA ---
+        // --- RENDER COLLETTORE ---
         async function loadLibrary() {
             const container = document.getElementById('lista-libri');
             container.innerHTML = `<p class="text-center text-xs uppercase tracking-widest text-gray-300 py-12">Sincronizzazione...</p>`;
@@ -287,7 +316,7 @@
 
             filtered.forEach(libro => {
                 const item = document.createElement('div');
-                item.className = "flex gap-5 items-start animate-in fade-in duration-500";
+                item.className = "flex gap-5 items-start animate-in fade-in duration-300";
                 
                 const coverContent = libro.copertinaUrl 
                     ? `<img src="${libro.copertinaUrl}" class="w-full h-full object-cover" onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden')">
@@ -295,7 +324,7 @@
                     : `<div class="placeholder-cover w-full h-full">${libro.titolo}</div>`;
 
                 item.innerHTML = `
-                    <div class="w-20 h-28 flex-shrink-0 bg-gray-50 rounded-lg overflow-hidden shadow-sm">
+                    <div class="w-20 h-28 flex-shrink-0 bg-gray-50 rounded-lg overflow-hidden shadow-sm border border-gray-100">
                         ${coverContent}
                     </div>
                     <div class="flex-grow space-y-2 min-w-0">
@@ -313,7 +342,7 @@
                         </div>
                         <textarea onchange="updateNote('${libro.id}', this.value)" class="w-full bg-transparent text-[11px] text-gray-500 border-none outline-none focus:text-black transition resize-none leading-relaxed" rows="2" placeholder="Aggiungi riflessioni...">${libro.riflessioni || ""}</textarea>
                         <div class="flex items-center gap-4 pt-1">
-                            <select onchange="updateStatus('${libro.id}', this.value)" class="text-[9px] font-bold uppercase tracking-widest bg-white border border-gray-100 rounded px-2 py-1">
+                            <select onchange="updateStatus('${libro.id}', this.value)" class="text-[9px] font-bold uppercase tracking-widest bg-white border border-gray-100 rounded px-2 py-1 outline-none">
                                 <option value="Da leggere" ${libro.stato === 'Da leggere' ? 'selected' : ''}>Sposta in: Da leggere</option>
                                 <option value="In lettura" ${libro.stato === 'In lettura' ? 'selected' : ''}>Sposta in: In lettura</option>
                                 <option value="Letto" ${libro.stato === 'Letto' ? 'selected' : ''}>Sposta in: Letto</option>
@@ -352,7 +381,6 @@
             }
         };
 
-        // --- STATISTICHE ---
         function updateStats() {
             const totale = currentLibri.length;
             const letti = currentLibri.filter(l => l.stato === "Letto").length;
@@ -365,7 +393,7 @@
             document.getElementById('stat-perc').innerText = perc + "%";
         }
 
-        // --- SCANNER ---
+        // --- CONTROLLO HARDWARE SCANNER ---
         function startScan() {
             document.getElementById('container-scanner').classList.remove('hidden');
             Quagga.init({
@@ -374,19 +402,19 @@
             }, (err) => {
                 if(err) return;
                 Quagga.start();
-                isScannerOn = true;
+                isScanning = true;
                 document.getElementById('btn-toggle-scan').innerText = "Ferma Scanner";
             });
         }
 
         function stopScan() {
             Quagga.stop();
-            isScannerOn = false;
+            isScanning = false;
             document.getElementById('container-scanner').classList.add('hidden');
             document.getElementById('btn-toggle-scan').innerText = "Avvia Scanner Codice";
         }
 
-        document.getElementById('btn-toggle-scan').onclick = () => isScannerOn ? stopScan() : startScan();
+        document.getElementById('btn-toggle-scan').onclick = () => isScanning ? stopScan() : startScan();
 
         let lastCode = null;
         Quagga.onDetected((res) => {
@@ -398,7 +426,7 @@
         });
 
         document.getElementById('btn-ricerca').onclick = () => {
-            const q = document.getElementById('input-ricerca').value;
+            const q = document.getElementById('input-ricerca').value.trim();
             if(q.length > 2) fetchBook(q);
         };
     </script>
