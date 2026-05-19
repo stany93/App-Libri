@@ -184,7 +184,9 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-        import { GoogleGenAI } from "@google/generative-ai";
+        
+        // CORREZIONE FONDAMENTALE QUI SOTTO
+        import { GoogleGenerativeAI } from "@google/generative-ai";
 
         const firebaseConfig = {
             apiKey: "AIzaSyARnpN14sxR2I9mEsoHq1tmG8EIrqm_QPY",
@@ -198,10 +200,10 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        // Offuscamento di protezione per evitare blocchi automatici di sicurezza
+        // API Key Gemini Offuscata e Corretta
         const p1 = "AIzaSyA7U98SZA";
         const p2 = "vneCv_TvkuL9NMZbet5yNyILU";
-        const ai = new GoogleGenAI({ apiKey: p1 + p2 });
+        const ai = new GoogleGenerativeAI(p1 + p2);
 
         let currentLibri = [];
         let currentFilter = "Tutti";
@@ -211,7 +213,7 @@
 
         window.switchTab = (tab) => {
             document.querySelectorAll('.tab-view').forEach(v => v.classList.add('hidden'));
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active', 'text-black', 'dark:text-white'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active', 'text-indigo-600', 'dark:text-indigo-400'));
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.add('text-slate-300', 'dark:text-zinc-600'));
             
             const titles = { 'add': 'Nuovo Libro', 'library': 'La mia collezione', 'stats': 'Andamento' };
@@ -320,6 +322,7 @@
 
             await addDoc(collection(db, "libri"), tempLibro);
             switchTab('library');
+            document.getElementById('input-ricerca').value = ""; // Svuota la casella di ricerca
         };
 
         document.getElementById('btn-annulla-save').onclick = () => switchTab('add');
