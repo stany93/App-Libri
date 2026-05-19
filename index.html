@@ -9,7 +9,13 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
-        #interactive.viewport video { width: 100%; height: auto; border-radius: 12px; }
+        
+        /* BLOCCO MIRINO FOTOCAMERA CORRETTO E INGABBIATO */
+        #container-scanner { height: 300px; position: relative; }
+        #interactive.viewport video, #interactive.viewport canvas {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 1rem;
+        }
+
         .tab-btn.active { color: #4f46e5; border-bottom: 2px solid #4f46e5; }
         @media (prefers-color-scheme: dark) {
             .tab-btn.active { color: #818cf8; border-bottom: 2px solid #818cf8; }
@@ -42,8 +48,8 @@
         <section id="view-add" class="tab-view">
             <div class="space-y-6">
                 <div class="relative w-full overflow-hidden bg-zinc-100 dark:bg-zinc-900 rounded-2xl hidden border border-slate-200 dark:border-zinc-800" id="container-scanner">
-                    <div id="interactive" class="viewport relative w-full"></div>
-                    <div class="absolute inset-0 border-2 border-indigo-500/50 pointer-events-none m-auto w-4/5 h-32 rounded-xl shadow-lg"></div>
+                    <div id="interactive" class="viewport relative w-full h-full"></div>
+                    <div class="absolute inset-0 border-2 border-indigo-500/50 pointer-events-none m-auto w-4/5 h-32 rounded-xl shadow-lg z-10"></div>
                 </div>
 
                 <button id="btn-toggle-scan" class="w-full bg-indigo-600 dark:bg-indigo-500 hover:bg-indigo-700 dark:hover:bg-indigo-600 text-white text-xs font-bold tracking-widest py-5 rounded-xl transition shadow-md shadow-indigo-200 dark:shadow-none uppercase">
@@ -65,7 +71,7 @@
                 </div>
 
                 <div id="stato-caricamento" class="hidden text-center py-4">
-                    <span class="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest animate-pulse">Gemini sta cercando sul web...</span>
+                    <span class="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest animate-pulse">Ricerca nel database...</span>
                 </div>
             </div>
         </section>
@@ -77,7 +83,7 @@
                 <div id="avviso-non-trovato" class="w-full bg-amber-50 dark:bg-amber-950/20 text-amber-800 dark:text-amber-300 text-xs p-4 rounded-xl hidden border border-amber-200 dark:border-amber-900/40 text-left leading-relaxed space-y-3">
                     <div>
                         <span class="font-bold uppercase text-[10px] tracking-wider block mb-1">Codice non registrato online</span>
-                        Configurazione non trovata negli archivi API globali. Compila i dati a mano, oppure usa il pulsante sottostante per identificare il titolo su Google e cercarlo manualmente.
+                        Questo codice a barre non è nei database mondiali. Compila i dati a mano, oppure usa il pulsante per identificare il titolo su Google e cercalo manualmente.
                     </div>
                     <button id="btn-google-fallback" target="_blank" class="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-3 rounded-lg text-[10px] uppercase tracking-wider text-center transition">
                         Cerca codice su Google
@@ -115,6 +121,10 @@
                         <label class="text-[9px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider block mb-1">Riflessioni e note personali</label>
                         <textarea id="conf-riflessioni" rows="3" placeholder="Aggiungi pensieri, citazioni o note..." class="w-full text-sm bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl p-3 outline-none resize-none text-slate-700 dark:text-zinc-300 placeholder-slate-400 dark:placeholder-zinc-600 leading-relaxed"></textarea>
                     </div>
+                </div>
+
+                <div class="text-center pt-2">
+                    <p id="conf-isbn" class="text-[10px] font-mono text-slate-400 dark:text-zinc-500"></p>
                 </div>
 
                 <div class="flex gap-3 pt-2">
@@ -173,20 +183,9 @@
         <button onclick="switchTab('stats')" id="nav-stats" class="tab-btn text-[10px] font-bold uppercase tracking-widest py-2 text-slate-300 dark:text-zinc-600 transition">Statistiche</button>
     </nav>
 
-    <script type="importmap">
-      {
-        "imports": {
-          "@google/generative-ai": "https://esm.run/@google/generative-ai"
-        }
-      }
-    </script>
-
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-        
-        // CORREZIONE FONDAMENTALE QUI SOTTO
-        import { GoogleGenerativeAI } from "@google/generative-ai";
 
         const firebaseConfig = {
             apiKey: "AIzaSyARnpN14sxR2I9mEsoHq1tmG8EIrqm_QPY",
@@ -199,11 +198,6 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-
-        // API Key Gemini Offuscata e Corretta
-        const p1 = "AIzaSyA7U98SZA";
-        const p2 = "vneCv_TvkuL9NMZbet5yNyILU";
-        const ai = new GoogleGenerativeAI(p1 + p2);
 
         let currentLibri = [];
         let currentFilter = "Tutti";
@@ -227,51 +221,44 @@
             if(isScanning) stopScan();
         };
 
+        // Ritorno al motore di ricerca super-stabile e testato
         async function fetchBook(queryText) {
             document.getElementById('stato-caricamento').classList.remove('hidden');
             const cleanQuery = queryText.replace(/[-\s]/g, '').trim();
+            const isNumeric = !isNaN(cleanQuery) && cleanQuery.length >= 10;
             
             try {
-                const model = ai.getGenerativeModel({ 
-                    model: "gemini-2.5-flash",
-                    generationConfig: { responseMimeType: "application/json" }
-                });
+                let targetUrl = isNumeric 
+                    ? `https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanQuery}`
+                    : `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryText)}&maxResults=1`;
 
-                const prompt = `Cerca sul web le informazioni editoriali relative a questo libro o codice ISBN: "${cleanQuery}".
-                Usa lo strumento di ricerca web per trovare i dati reali corretti di edizioni italiane.
-                Restituisci unicamente un oggetto JSON strutturato esattamente così, senza testo aggiuntivo:
-                {
-                  "titolo": "Titolo reale del libro",
-                  "autore": "Nome dell'autore",
-                  "copertinaUrl": "Un URL pubblico e valido della copertina del libro (es. da amazon o openlibrary), se non lo trovi lascia vuoto"
-                }`;
-
-                const result = await model.generateContent({
-                    contents: [{ role: "user", parts: [{ text: prompt }] }],
-                    tools: [{ googleSearch: {} }] 
-                });
-
-                const responseText = result.response.text();
-                const libroDati = JSON.parse(responseText);
-
-                tempLibro = {
-                    titolo: libroDati.titolo || "Titolo non trovato",
-                    autore: libroDati.autore || "Autore sconosciuto",
-                    isbn: cleanQuery,
-                    copertinaUrl: libroDati.copertinaUrl || "",
-                    stato: "Da leggere",
-                    riflessioni: ""
-                };
-
-                if (!tempLibro.copertinaUrl && !isNaN(cleanQuery)) {
-                    tempLibro.copertinaUrl = `https://covers.openlibrary.org/b/isbn/${cleanQuery}-M.jpg`;
+                let res = await fetch(targetUrl);
+                let data = await res.json();
+                
+                if (data.items && data.items.length > 0) {
+                    const info = data.items[0].volumeInfo;
+                    tempLibro = {
+                        titolo: info.title || "",
+                        autore: info.authors ? info.authors.join(", ") : "",
+                        isbn: info.industryIdentifiers ? info.industryIdentifiers[0].identifier : (isNumeric ? cleanQuery : "Non disponibile"),
+                        copertinaUrl: info.imageLinks ? info.imageLinks.thumbnail.replace("http://", "https://") : "",
+                        stato: "Da leggere",
+                        riflessioni: ""
+                    };
+                } else {
+                    tempLibro = { 
+                        titolo: isNumeric ? "" : queryText, 
+                        autore: "", 
+                        isbn: isNumeric ? cleanQuery : "Non disponibile", 
+                        copertinaUrl: isNumeric ? `https://covers.openlibrary.org/b/isbn/${cleanQuery}-M.jpg` : "", 
+                        stato: "Da leggere", 
+                        riflessioni: "" 
+                    };
                 }
-
                 showConfirm();
-
             } catch (e) {
-                console.error("Errore Gemini, uso il fallback tradizionale locale:", e);
-                tempLibro = { titolo: "", autore: "", isbn: cleanQuery, copertinaUrl: !isNaN(cleanQuery) ? `https://covers.openlibrary.org/b/isbn/${cleanQuery}-M.jpg` : "", stato: "Da leggere", riflessioni: "" };
+                console.error(e);
+                tempLibro = { titolo: isNumeric ? "" : queryText, autore: "", isbn: isNumeric ? cleanQuery : "Non disponibile", copertinaUrl: "", stato: "Da leggere", riflessioni: "" };
                 showConfirm();
             } finally {
                 document.getElementById('stato-caricamento').classList.add('hidden');
@@ -285,12 +272,13 @@
             document.getElementById('conf-titolo').value = tempLibro.titolo;
             document.getElementById('conf-autore').value = tempLibro.autore;
             document.getElementById('conf-riflessioni').value = "";
-            document.getElementById('conf-isbn').innerText = "Riferimento associato: " + tempLibro.isbn;
-
+            document.getElementById('conf-isbn').innerText = "Riferimento: " + tempLibro.isbn;
+            
             const avviso = document.getElementById('avviso-non-trovato');
             const googleBtn = document.getElementById('btn-google-fallback');
             
-            if(!tempLibro.titolo || tempLibro.titolo === "Titolo non trovato") {
+            // Logica avviso codice fantasma
+            if(!tempLibro.titolo) {
                 avviso.classList.remove('hidden');
                 googleBtn.onclick = () => {
                     window.open(`https://www.google.com/search?q=${tempLibro.isbn}`, '_blank');
@@ -322,7 +310,7 @@
 
             await addDoc(collection(db, "libri"), tempLibro);
             switchTab('library');
-            document.getElementById('input-ricerca').value = ""; // Svuota la casella di ricerca
+            document.getElementById('input-ricerca').value = "";
         };
 
         document.getElementById('btn-annulla-save').onclick = () => switchTab('add');
