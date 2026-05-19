@@ -14,6 +14,7 @@
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 12px;
         }
         .tab-btn.active { color: #4f46e5; border-bottom: 2px solid #4f46e5; }
+        @media (prefers-color-scheme: dark) { .tab-btn.active { color: #818cf8; border-bottom: 2px solid #818cf8; } }
         .filter-btn.active { background-color: #4f46e5; color: #fff; border-color: #4f46e5; }
         .placeholder-cover {
             background: linear-gradient(135deg, #4f46e5 0%, #c084fc 100%);
@@ -23,22 +24,23 @@
         .no-scrollbar::-webkit-scrollbar { display: none; }
     </style>
 </head>
-<body class="bg-slate-50 dark:bg-zinc-950 text-slate-900 dark:text-zinc-50 min-h-screen pb-24">
+<body class="bg-slate-50 dark:bg-zinc-950 text-slate-900 dark:text-zinc-50 min-h-screen pb-24 transition-colors duration-200">
 
     <div class="max-w-md mx-auto px-6 pt-8">
         <header class="mb-8">
-            <h1 class="text-xs font-bold tracking-[0.2em] uppercase text-indigo-600 mb-1">Archivio Letterario</h1>
+            <h1 class="text-xs font-bold tracking-[0.2em] uppercase text-indigo-600 dark:text-indigo-400 mb-1">Archivio Letterario</h1>
             <h2 id="page-title" class="text-3xl font-bold tracking-tight">Nuovo Libro</h2>
         </header>
 
         <section id="view-add" class="tab-view">
             <div class="space-y-6">
-                <div class="relative w-full overflow-hidden bg-zinc-100 rounded-2xl hidden border" id="container-scanner">
+                <div class="relative w-full overflow-hidden bg-zinc-100 dark:bg-zinc-900 rounded-2xl hidden border" id="container-scanner">
                     <div id="interactive" class="viewport relative w-full h-full"></div>
+                    <div class="absolute inset-0 border-2 border-indigo-500/50 pointer-events-none m-auto w-4/5 h-32 rounded-xl shadow-lg z-10"></div>
                 </div>
                 <button id="btn-toggle-scan" class="w-full bg-indigo-600 text-white text-xs font-bold tracking-widest py-5 rounded-xl uppercase">Avvia Scanner</button>
                 <div class="space-y-3">
-                    <input type="text" id="input-ricerca" placeholder="Titolo, Autore..." class="w-full bg-white border px-4 py-4 rounded-xl text-sm outline-none">
+                    <input type="text" id="input-ricerca" placeholder="Titolo o Autore..." class="w-full bg-white border px-4 py-4 rounded-xl text-sm outline-none">
                     <button id="btn-ricerca" class="w-full bg-zinc-900 text-white py-4 rounded-xl font-bold text-xs uppercase">Cerca nel database</button>
                 </div>
             </div>
@@ -48,102 +50,76 @@
             <div class="bg-white border rounded-2xl p-6 space-y-6 shadow-sm">
                 <h3 class="text-xl font-bold">Verifica dati</h3>
                 <div class="flex gap-4">
-                    <div id="confirm-cover-container" class="w-24 h-36 rounded-xl overflow-hidden shadow-sm flex-shrink-0 bg-slate-50">
+                    <div id="confirm-cover-container" class="w-24 h-36 rounded-xl overflow-hidden bg-slate-50">
                         <img id="conf-copertina" class="w-full h-full object-cover hidden" src="" alt="">
                         <div id="conf-placeholder" class="placeholder-cover w-full h-full">Nessuna Immagine</div>
                     </div>
                     <div class="flex-grow space-y-3">
-                        <input type="text" id="conf-titolo" class="w-full text-sm font-semibold border-b outline-none py-1">
-                        <input type="text" id="conf-autore" class="w-full text-sm border-b outline-none py-1 text-slate-500">
+                        <input type="text" id="conf-titolo" class="w-full text-sm font-semibold border-b outline-none">
+                        <input type="text" id="conf-autore" class="w-full text-sm border-b outline-none text-slate-500">
                     </div>
                 </div>
-                <select id="conf-tipo" class="w-full text-sm bg-slate-50 border rounded-xl p-3 outline-none">
-                    <option value="libreria">Libreria</option>
-                    <option value="desideri">Lista Desideri</option>
-                </select>
                 <button id="btn-conferma-save" class="w-full py-4 bg-emerald-600 text-white text-xs font-bold uppercase rounded-xl">Salva</button>
-                <p id="conf-isbn" class="text-[10px] text-center text-slate-400"></p>
             </div>
         </section>
-
+        
         <section id="view-library" class="tab-view hidden space-y-4">
             <div id="lista-libri" class="space-y-4"></div>
         </section>
     </div>
 
+    <nav class="fixed bottom-0 left-0 right-0 bg-white border-t px-4 py-4 flex justify-between max-w-md mx-auto z-50">
+        <button onclick="switchTab('add')" class="tab-btn active p-2 text-[10px] font-bold uppercase">Aggiungi</button>
+        <button onclick="switchTab('library')" class="tab-btn p-2 text-[10px] font-bold uppercase">Libreria</button>
+        <button onclick="switchTab('stats')" class="tab-btn p-2 text-[10px] font-bold uppercase">Stats</button>
+    </nav>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, getDocs, doc, deleteDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const db = getFirestore(initializeApp({ apiKey: "AIzaSyARnpN14sxR2I9mEsoHq1tmG8EIrqm_QPY", projectId: "app-libri-35839" }));
-        
-        window.fetchBook = async (queryText) => {
-            const cleanQuery = queryText.trim();
-            const isNumeric = /^\d+$/.test(cleanQuery.replace(/[-\s]/g, ''));
-            const numericCode = cleanQuery.replace(/[-\s]/g, '');
 
+        window.switchTab = (t) => {
+            document.querySelectorAll('.tab-view').forEach(v => v.classList.add('hidden'));
+            document.getElementById('view-' + t).classList.remove('hidden');
+        };
+
+        window.fetchBook = async (queryText) => {
             try {
-                // Ricerca Google Books (il miglior database esistente)
-                let url = `https://www.googleapis.com/books/v1/volumes?q=${isNumeric ? 'isbn:'+numericCode : encodeURIComponent(cleanQuery)}&maxResults=5`;
+                let url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryText)}&maxResults=5`;
                 let res = await fetch(url);
                 let data = await res.json();
-                
-                if (data.items) {
-                    // Cerca il primo con immagine, altrimenti il primo in assoluto
+                if(data.items) {
                     let match = data.items.find(i => i.volumeInfo.imageLinks) || data.items[0];
                     window.tempLibro = {
                         titolo: match.volumeInfo.title,
                         autore: match.volumeInfo.authors ? match.volumeInfo.authors.join(", ") : "Autore Ignoto",
-                        isbn: isNumeric ? numericCode : (match.volumeInfo.industryIdentifiers ? match.volumeInfo.industryIdentifiers[0].identifier : "Non disponibile"),
-                        copertinaUrl: match.volumeInfo.imageLinks ? match.volumeInfo.imageLinks.thumbnail.replace("http://", "https://") : "",
-                        tipo: "libreria"
+                        copertinaUrl: match.volumeInfo.imageLinks ? match.volumeInfo.imageLinks.thumbnail.replace("http://", "https://") : ""
                     };
-                } else {
-                    // Fallback se Google fallisce
-                    window.tempLibro = { titolo: cleanQuery, autore: "Autore Ignoto", isbn: isNumeric ? numericCode : "Non disponibile", copertinaUrl: isNumeric ? `https://covers.openlibrary.org/b/isbn/${numericCode}-M.jpg` : "", tipo: "libreria" };
+                    document.getElementById('view-add').classList.add('hidden');
+                    document.getElementById('view-confirm').classList.remove('hidden');
+                    document.getElementById('conf-titolo').value = window.tempLibro.titolo;
+                    document.getElementById('conf-autore').value = window.tempLibro.autore;
+                    if(window.tempLibro.copertinaUrl) {
+                        document.getElementById('conf-copertina').src = window.tempLibro.copertinaUrl;
+                        document.getElementById('conf-copertina').classList.remove('hidden');
+                        document.getElementById('conf-placeholder').classList.add('hidden');
+                    }
                 }
-                showConfirm();
-            } catch (e) {
-                alert("Errore di rete. Riprova.");
-            }
+            } catch(e) { alert("Errore ricerca"); }
         };
 
-        function showConfirm() {
-            document.querySelectorAll('.tab-view').forEach(v => v.classList.add('hidden'));
-            document.getElementById('view-confirm').classList.remove('hidden');
-            document.getElementById('conf-titolo').value = window.tempLibro.titolo;
-            document.getElementById('conf-autore').value = window.tempLibro.autore;
-            document.getElementById('conf-isbn').innerText = "Codice: " + window.tempLibro.isbn;
-            
-            const img = document.getElementById('conf-copertina');
-            const placeholder = document.getElementById('conf-placeholder');
-            if(window.tempLibro.copertinaUrl) {
-                img.src = window.tempLibro.copertinaUrl;
-                img.classList.remove('hidden');
-                placeholder.classList.add('hidden');
-            } else {
-                img.classList.add('hidden');
-                placeholder.classList.remove('hidden');
-            }
-        }
-
-        // --- GESTIONE SALVATAGGIO ---
+        document.getElementById('btn-ricerca').onclick = () => fetchBook(document.getElementById('input-ricerca').value);
         document.getElementById('btn-conferma-save').onclick = async () => {
-            window.tempLibro.titolo = document.getElementById('conf-titolo').value;
-            window.tempLibro.autore = document.getElementById('conf-autore').value;
-            window.tempLibro.tipo = document.getElementById('conf-tipo').value;
-            window.tempLibro.createdAt = new Date();
-            await addDoc(collection(db, "libri"), window.tempLibro);
+            await addDoc(collection(db, "libri"), { 
+                titolo: document.getElementById('conf-titolo').value,
+                autore: document.getElementById('conf-autore').value,
+                copertinaUrl: window.tempLibro.copertinaUrl,
+                createdAt: new Date() 
+            });
             location.reload();
         };
-
-        // --- SCANNER ---
-        document.getElementById('btn-toggle-scan').onclick = () => {
-            document.getElementById('container-scanner').classList.toggle('hidden');
-            Quagga.init({ inputStream: { name: "Live", type: "LiveStream", target: document.querySelector('#interactive'), constraints: { facingMode: "environment" } }, decoder: { readers: ["ean_reader"] } }, (e) => { if(!e) Quagga.start(); });
-        };
-        Quagga.onDetected((res) => { Quagga.stop(); fetchBook(res.codeResult.code); });
-        document.getElementById('btn-ricerca').onclick = () => fetchBook(document.getElementById('input-ricerca').value);
     </script>
 </body>
 </html>
