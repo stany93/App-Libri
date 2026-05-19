@@ -64,7 +64,7 @@
                 <div class="space-y-3">
                     <label class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest">Ricerca manuale rapida</label>
                     <div class="flex gap-2">
-                        <input type="text" id="input-ricerca" placeholder="Titolo, Autore o ISBN..." class="flex-grow bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 px-4 py-4 rounded-xl text-sm focus:ring-1 focus:ring-indigo-500 dark:focus:ring-indigo-400 outline-none transition shadow-sm">
+                        <input type="text" id="input-ricerca" placeholder="Es: IT, Stephen King" class="flex-grow bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 px-4 py-4 rounded-xl text-sm focus:ring-1 focus:ring-indigo-500 dark:focus:ring-indigo-400 outline-none transition shadow-sm">
                         <button id="btn-ricerca" class="bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-6 py-4 rounded-xl font-bold text-xs uppercase transition active:scale-95 shadow-sm">Cerca</button>
                     </div>
                 </div>
@@ -81,8 +81,8 @@
                 
                 <div id="avviso-non-trovato" class="w-full bg-amber-50 dark:bg-amber-950/20 text-amber-800 dark:text-amber-300 text-xs p-4 rounded-xl hidden border border-amber-200 dark:border-amber-900/40 text-left leading-relaxed space-y-3">
                     <div>
-                        <span class="font-bold uppercase text-[10px] tracking-wider block mb-1">Codice non registrato online</span>
-                        Nessun riscontro automatico trovato per questo codice a barre. Puoi completare l'inserimento digitando i dettagli manualmente.
+                        <span class="font-bold uppercase text-[10px] tracking-wider block mb-1">Dati parziali</span>
+                        Controlla e completa i dettagli manualmente.
                     </div>
                 </div>
                 
@@ -252,13 +252,35 @@
 
         async function fetchBook(queryText) {
             document.getElementById('stato-caricamento').classList.remove('hidden');
-            const cleanQuery = queryText.replace(/[-\s]/g, '').trim();
-            const isNumeric = !isNaN(cleanQuery) && cleanQuery.length >= 10;
+            
+            const cleanQuery = queryText.trim();
+            const isNumeric = !isNaN(cleanQuery.replace(/[-\s]/g, '')) && cleanQuery.replace(/[-\s]/g, '').length >= 10;
+            const numericCode = cleanQuery.replace(/[-\s]/g, '');
+
+            let guessedTitle = cleanQuery;
+            let guessedAuthor = "";
+
+            if (!isNumeric) {
+                if (cleanQuery.includes(",")) {
+                    let parts = cleanQuery.split(",");
+                    guessedTitle = parts[0].trim();
+                    guessedAuthor = parts[1].trim();
+                } else if (cleanQuery.includes("-")) {
+                    let parts = cleanQuery.split("-");
+                    guessedTitle = parts[0].trim();
+                    guessedAuthor = parts.slice(1).join("-").trim();
+                }
+            }
             
             try {
-                let targetUrl = isNumeric 
-                    ? `https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanQuery}`
-                    : `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryText)}&maxResults=1`;
+                let targetUrl = "";
+                if (isNumeric) {
+                    targetUrl = `https://www.googleapis.com/books/v1/volumes?q=isbn:${numericCode}`;
+                } else {
+                    let q = encodeURIComponent(guessedTitle);
+                    if (guessedAuthor) q += `+inauthor:${encodeURIComponent(guessedAuthor)}`;
+                    targetUrl = `https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=1`;
+                }
 
                 let res = await fetch(targetUrl);
                 let data = await res.json();
@@ -266,20 +288,20 @@
                 if (data.items && data.items.length > 0) {
                     const info = data.items[0].volumeInfo;
                     tempLibro = {
-                        titolo: info.title || queryText,
-                        autore: info.authors ? info.authors.join(", ") : "",
-                        isbn: info.industryIdentifiers ? info.industryIdentifiers[0].identifier : (isNumeric ? cleanQuery : "Non disponibile"),
-                        copertinaUrl: info.imageLinks ? info.imageLinks.thumbnail.replace("http://", "https://") : "",
+                        titolo: info.title || guessedTitle,
+                        autore: info.authors ? info.authors.join(", ") : guessedAuthor,
+                        isbn: info.industryIdentifiers ? info.industryIdentifiers[0].identifier : (isNumeric ? numericCode : "Non disponibile"),
+                        copertinaUrl: info.imageLinks ? (info.imageLinks.thumbnail || info.imageLinks.smallThumbnail).replace("http://", "https://") : "",
                         stato: "Da leggere",
                         tipo: "libreria",
                         riflessioni: ""
                     };
                 } else {
                     tempLibro = { 
-                        titolo: isNumeric ? "" : queryText, 
-                        autore: "", 
-                        isbn: isNumeric ? cleanQuery : "Non disponibile", 
-                        copertinaUrl: isNumeric ? `https://covers.openlibrary.org/b/isbn/${cleanQuery}-M.jpg` : "", 
+                        titolo: isNumeric ? "" : guessedTitle, 
+                        autore: guessedAuthor, 
+                        isbn: isNumeric ? numericCode : "Non disponibile", 
+                        copertinaUrl: isNumeric ? `https://covers.openlibrary.org/b/isbn/${numericCode}-M.jpg` : "", 
                         stato: "Da leggere", 
                         tipo: "libreria",
                         riflessioni: "" 
@@ -288,7 +310,7 @@
                 showConfirm();
             } catch (e) {
                 console.error(e);
-                tempLibro = { titolo: isNumeric ? "" : queryText, autore: "", isbn: isNumeric ? cleanQuery : "Non disponibile", copertinaUrl: "", stato: "Da leggere", tipo: "libreria", riflessioni: "" };
+                tempLibro = { titolo: isNumeric ? "" : guessedTitle, autore: guessedAuthor, isbn: isNumeric ? numericCode : "Non disponibile", copertinaUrl: "", stato: "Da leggere", tipo: "libreria", riflessioni: "" };
                 showConfirm();
             } finally {
                 document.getElementById('stato-caricamento').classList.add('hidden');
@@ -307,7 +329,7 @@
             
             const avviso = document.getElementById('avviso-non-trovato');
             
-            if(!tempLibro.titolo) {
+            if(!tempLibro.titolo || (!tempLibro.copertinaUrl && tempLibro.isbn === "Non disponibile")) {
                 avviso.classList.remove('hidden');
             } else {
                 avviso.classList.add('hidden');
