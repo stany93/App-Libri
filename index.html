@@ -51,9 +51,9 @@
                 </button>
 
                 <div class="flex items-center gap-4 py-2">
-                    <div class="h-[1px] flex-grow bg-slate-200 dark:bg-zinc-800"></div>
+                    <div class="h-[1px] bg-slate-200 dark:bg-zinc-800 flex-grow"></div>
                     <span class="text-[10px] font-bold text-slate-300 dark:text-zinc-600 uppercase tracking-widest">oppure</span>
-                    <div class="h-[1px] flex-grow bg-slate-200 dark:bg-zinc-800"></div>
+                    <div class="h-[1px] bg-slate-200 dark:bg-zinc-800 flex-grow"></div>
                 </div>
 
                 <div class="space-y-3">
@@ -65,7 +65,7 @@
                 </div>
 
                 <div id="stato-caricamento" class="hidden text-center py-4">
-                    <span class="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest animate-pulse">Sincronizzazione in corso...</span>
+                    <span class="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest animate-pulse">Gemini sta cercando sul web...</span>
                 </div>
             </div>
         </section>
@@ -73,11 +73,6 @@
         <section id="view-confirm" class="tab-view hidden">
             <div class="bg-white dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 rounded-2xl p-6 space-y-6 shadow-sm">
                 <h3 class="text-xl font-bold tracking-tight">Verifica dati</h3>
-                
-                <div id="avviso-non-trovato" class="w-full bg-amber-50 dark:bg-amber-950/20 text-amber-800 dark:text-amber-300 text-xs p-4 rounded-xl hidden border border-amber-200 dark:border-amber-900/40 text-left leading-relaxed">
-                    <span class="font-bold uppercase text-[10px] tracking-wider block mb-1">Codice non registrato online</span>
-                    Configurazione non trovata negli archivi globali. Compila i dati necessari qui sotto, oppure annulla e inserisci direttamente il <b>Titolo</b> del libro per recuperare la scheda e la copertina originale.
-                </div>
                 
                 <div class="flex gap-4">
                     <div id="confirm-cover-container" class="w-24 h-36 rounded-xl overflow-hidden shadow-sm flex-shrink-0 border border-slate-100 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950">
@@ -108,7 +103,7 @@
                     </div>
                     <div>
                         <label class="text-[9px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider block mb-1">Riflessioni e note personali</label>
-                        <textarea id="conf-riflessioni" rows="3" placeholder="Aggiungi pensieri, citazioni o note su questo volume..." class="w-full text-sm bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl p-3 outline-none resize-none text-slate-700 dark:text-zinc-300 placeholder-slate-400 dark:placeholder-zinc-600 leading-relaxed"></textarea>
+                        <textarea id="conf-riflessioni" rows="3" placeholder="Aggiungi pensieri, citazioni o note..." class="w-full text-sm bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl p-3 outline-none resize-none text-slate-700 dark:text-zinc-300 placeholder-slate-400 dark:placeholder-zinc-600 leading-relaxed"></textarea>
                     </div>
                 </div>
 
@@ -123,7 +118,7 @@
             <div class="flex gap-2 overflow-x-auto pb-4 no-scrollbar">
                 <button onclick="filterLib('Tutti')" class="filter-btn active px-4 py-2 text-[10px] font-bold uppercase tracking-widest rounded-full border border-slate-200 dark:border-zinc-800 whitespace-nowrap bg-white dark:bg-zinc-900 transition">Tutti</button>
                 <button onclick="filterLib('In lettura')" class="filter-btn px-4 py-2 text-[10px] font-bold uppercase tracking-widest rounded-full border border-slate-200 dark:border-zinc-800 whitespace-nowrap bg-white dark:bg-zinc-900 transition">In lettura</button>
-                <button onclick="filterLib('Letto')" class="filter-btn px-4 py-2 text-[10px] font-bold uppercase tracking-widest rounded-full border border-slate-200 dark:border-zinc-800 whitespace-nowrap bg-white dark:bg-zinc-900 transition">Letto</button>
+                <button onclick="filterLib('Letto')" class="filter-btn px-4 py-2 text-[10px] font-bold uppercase tracking-widest rounded-full border border-slate-200 dark:border-slate-200 dark:border-zinc-800 whitespace-nowrap bg-white dark:bg-zinc-900 transition">Letto</button>
             </div>
 
             <div class="flex justify-between items-center mb-6 border-b border-slate-100 dark:border-zinc-900 pb-3">
@@ -168,9 +163,18 @@
         <button onclick="switchTab('stats')" id="nav-stats" class="tab-btn text-[10px] font-bold uppercase tracking-widest py-2 text-slate-300 dark:text-zinc-600 transition">Statistiche</button>
     </nav>
 
+    <script type="importmap">
+      {
+        "imports": {
+          "@google/generative-ai": "https://esm.run/@google/generative-ai"
+        }
+      }
+    </script>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { GoogleGenAI } from "@google/generative-ai";
 
         const firebaseConfig = {
             apiKey: "AIzaSyARnpN14sxR2I9mEsoHq1tmG8EIrqm_QPY",
@@ -183,6 +187,10 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
+
+        // CONFIGURA LA TUA GEMINI KEY QUI
+        const GEMINI_API_KEY = "INSERISCI_QUI_LA_TUA_GEMINI_API_KEY"; 
+        const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
         let currentLibri = [];
         let currentFilter = "Tutti";
@@ -206,43 +214,56 @@
             if(isScanning) stopScan();
         };
 
+        // --- MOTORE DI RICERCA INTELLIGENTE CON GEMINI 2.5 FLASH ---
         async function fetchBook(queryText) {
             document.getElementById('stato-caricamento').classList.remove('hidden');
             const cleanQuery = queryText.replace(/[-\s]/g, '').trim();
-            const isNumeric = !isNaN(cleanQuery) && cleanQuery.length >= 10;
             
             try {
-                let targetUrl = isNumeric 
-                    ? `https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanQuery}`
-                    : `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(queryText)}&maxResults=1`;
+                // Inizializziamo il modello Flash abilitando la ricerca sul web (Google Search Grounding)
+                const model = ai.getGenerativeModel({ 
+                    model: "gemini-2.5-flash",
+                    generationConfig: { responseMimeType: "application/json" }
+                });
 
-                let res = await fetch(targetUrl);
-                let data = await res.json();
-                
-                if (data.items && data.items.length > 0) {
-                    const info = data.items[0].volumeInfo;
-                    tempLibro = {
-                        titolo: info.title || "",
-                        autore: info.authors ? info.authors.join(", ") : "",
-                        isbn: info.industryIdentifiers ? info.industryIdentifiers[0].identifier : (isNumeric ? cleanQuery : "Non disponibile"),
-                        copertinaUrl: info.imageLinks ? info.imageLinks.thumbnail.replace("http://", "https://") : "",
-                        stato: "Da leggere",
-                        riflessioni: ""
-                    };
-                } else {
-                    tempLibro = { 
-                        titolo: isNumeric ? "" : queryText, 
-                        autore: "", 
-                        isbn: isNumeric ? cleanQuery : "Non disponibile", 
-                        copertinaUrl: isNumeric ? `https://covers.openlibrary.org/b/isbn/${cleanQuery}-M.jpg` : "", 
-                        stato: "Da leggere", 
-                        riflessioni: "" 
-                    };
+                const prompt = `Cerca sul web le informazioni editoriali relative a questo libro o codice ISBN: "${cleanQuery}".
+                Usa lo strumento di ricerca web per trovare i dati reali corretti di edizioni italiane.
+                Restituisci unicamente un oggetto JSON strutturato esattamente così, senza testo aggiuntivo:
+                {
+                  "titolo": "Titolo reale del libro",
+                  "autore": "Nome dell'autore",
+                  "copertinaUrl": "Un URL pubblico e valido della copertina del libro (es. da amazon o openlibrary), se non lo trovi lascia vuoto"
+                }`;
+
+                // Chiamata con gli strumenti di ricerca attivi
+                const result = await model.generateContent({
+                    contents: [{ role: "user", parts: [{ text: prompt }] }],
+                    tools: [{ googleSearch: {} }] 
+                });
+
+                const responseText = result.response.text();
+                const libroDati = JSON.parse(responseText);
+
+                tempLibro = {
+                    titolo: libroDati.titolo || "Titolo non trovato",
+                    autore: libroDati.autore || "Autore sconosciuto",
+                    isbn: cleanQuery,
+                    copertinaUrl: libroDati.copertinaUrl || "",
+                    stato: "Da leggere",
+                    riflessioni: ""
+                };
+
+                // Se Gemini non trova l'immagine, usiamo OpenLibrary come paracadute sul codice numerico
+                if (!tempLibro.copertinaUrl && !isNaN(cleanQuery)) {
+                    tempLibro.copertinaUrl = `https://covers.openlibrary.org/b/isbn/${cleanQuery}-M.jpg`;
                 }
+
                 showConfirm();
+
             } catch (e) {
-                console.error(e);
-                tempLibro = { titolo: isNumeric ? "" : queryText, autore: "", isbn: isNumeric ? cleanQuery : "Non disponibile", copertinaUrl: "", stato: "Da leggere", riflessioni: "" };
+                console.error("Errore Gemini, uso il fallback tradizionale locale:", e);
+                // Fallback locale rapido in caso di problemi di rete o chiavi API errate
+                tempLibro = { titolo: "", autore: "", isbn: cleanQuery, copertinaUrl: !isNaN(cleanQuery) ? `https://covers.openlibrary.org/b/isbn/${cleanQuery}-M.jpg` : "", stato: "Da leggere", riflessioni: "" };
                 showConfirm();
             } finally {
                 document.getElementById('stato-caricamento').classList.add('hidden');
@@ -256,14 +277,7 @@
             document.getElementById('conf-titolo').value = tempLibro.titolo;
             document.getElementById('conf-autore').value = tempLibro.autore;
             document.getElementById('conf-riflessioni').value = "";
-            document.getElementById('conf-isbn').innerText = "Riferimento: " + tempLibro.isbn;
-            
-            const avviso = document.getElementById('avviso-non-trovato');
-            if(!tempLibro.titolo) {
-                avviso.classList.remove('hidden');
-            } else {
-                avviso.classList.add('hidden');
-            }
+            document.getElementById('conf-isbn').innerText = "Riferimento associato: " + tempLibro.isbn;
 
             const img = document.getElementById('conf-copertina');
             const placeholder = document.getElementById('conf-placeholder');
@@ -306,7 +320,8 @@
             const container = document.getElementById('lista-libri');
             container.innerHTML = "";
 
-            let filtered = currentLibri.filter(l => currentFilter === "Tutti" || l.stato === currentFilter);
+            let filter = currentFilter;
+            let filtered = currentLibri.filter(l => filter === "Tutti" || l.stato === filter);
             
             if(currentOrder === "titolo") {
                 filtered.sort((a,b) => a.titolo.localeCompare(b.titolo));
