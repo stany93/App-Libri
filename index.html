@@ -183,6 +183,22 @@
         <button onclick="switchTab('stats')" id="nav-stats" class="tab-btn text-[10px] font-bold uppercase tracking-widest py-2 text-slate-300 dark:text-zinc-600 transition">Statistiche</button>
     </nav>
 
+    <div id="modal-conferma-codice" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-zinc-900 w-full max-w-sm rounded-2xl p-6 shadow-2xl transition-transform duration-200">
+            <h3 class="text-lg font-bold text-slate-900 dark:text-zinc-50 mb-2">Codice rilevato</h3>
+            <p class="text-xs text-slate-500 dark:text-zinc-400 mb-6 leading-relaxed">Verifica che i numeri corrispondano esattamente a quelli stampati sul libro:</p>
+            
+            <div class="bg-slate-100 dark:bg-zinc-800 rounded-xl py-4 text-center mb-6">
+                <span id="scanned-code-display" class="text-2xl font-mono font-bold tracking-widest text-indigo-600 dark:text-indigo-400"></span>
+            </div>
+
+            <div class="flex gap-3">
+                <button id="btn-modal-riprova" class="flex-1 py-3 text-xs font-bold uppercase tracking-widest border border-slate-200 dark:border-zinc-700 rounded-xl transition bg-transparent hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300">Riprova</button>
+                <button id="btn-modal-cerca" class="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold uppercase tracking-widest rounded-xl transition shadow-sm">Cerca</button>
+            </div>
+        </div>
+    </div>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
@@ -221,7 +237,7 @@
             if(isScanning) stopScan();
         };
 
-        // Ritorno al motore di ricerca super-stabile e testato
+        // Ricerca tradizionale robusta
         async function fetchBook(queryText) {
             document.getElementById('stato-caricamento').classList.remove('hidden');
             const cleanQuery = queryText.replace(/[-\s]/g, '').trim();
@@ -277,7 +293,6 @@
             const avviso = document.getElementById('avviso-non-trovato');
             const googleBtn = document.getElementById('btn-google-fallback');
             
-            // Logica avviso codice fantasma
             if(!tempLibro.titolo) {
                 avviso.classList.remove('hidden');
                 googleBtn.onclick = () => {
@@ -405,6 +420,7 @@
             document.getElementById('stat-perc').innerText = perc + "%";
         }
 
+        // --- SCANNER E POPUP CONFERMA ---
         function startScan() {
             document.getElementById('container-scanner').classList.remove('hidden');
             Quagga.init({
@@ -420,8 +436,10 @@
         }
 
         function stopScan() {
-            Quagga.stop();
-            isScanning = false;
+            if(isScanning) {
+                Quagga.stop();
+                isScanning = false;
+            }
             document.getElementById('container-scanner').classList.add('hidden');
             document.getElementById('btn-toggle-scan').innerText = "Avvia Scanner Codice";
             document.getElementById('btn-toggle-scan').classList.replace('bg-rose-600', 'bg-indigo-600');
@@ -429,14 +447,37 @@
 
         document.getElementById('btn-toggle-scan').onclick = () => isScanning ? stopScan() : startScan();
 
-        let lastCode = null;
+        let lastCode = null, count = 0;
         Quagga.onDetected((res) => {
             const code = res.codeResult.code;
-            if(code === lastCode) return;
-            lastCode = code;
-            stopScan();
-            fetchBook(code);
+            if(code === lastCode) {
+                count++;
+                if(count >= 3) { 
+                    stopScan();
+                    lastCode = null;
+                    count = 0;
+                    
+                    // Mostra il popup di conferma
+                    document.getElementById('scanned-code-display').innerText = code;
+                    document.getElementById('modal-conferma-codice').classList.remove('hidden');
+                }
+            } else {
+                lastCode = code;
+                count = 0;
+            }
         });
+
+        // Gestione bottoni del Popup
+        document.getElementById('btn-modal-riprova').onclick = () => {
+            document.getElementById('modal-conferma-codice').classList.add('hidden');
+            startScan();
+        };
+
+        document.getElementById('btn-modal-cerca').onclick = () => {
+            document.getElementById('modal-conferma-codice').classList.add('hidden');
+            const codeToSearch = document.getElementById('scanned-code-display').innerText;
+            fetchBook(codeToSearch);
+        };
 
         document.getElementById('btn-ricerca').onclick = () => {
             const q = document.getElementById('input-ricerca').value.trim();
