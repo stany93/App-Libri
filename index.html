@@ -64,7 +64,7 @@
                 <div class="space-y-3">
                     <label class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest">Ricerca manuale rapida</label>
                     <div class="flex gap-2">
-                        <input type="text" id="input-ricerca" placeholder="Es: IT, Stephen King" class="flex-grow bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 px-4 py-4 rounded-xl text-sm focus:ring-1 focus:ring-indigo-500 dark:focus:ring-indigo-400 outline-none transition shadow-sm">
+                        <input type="text" id="input-ricerca" placeholder="Es: IT Stephen King" class="flex-grow bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 px-4 py-4 rounded-xl text-sm focus:ring-1 focus:ring-indigo-500 dark:focus:ring-indigo-400 outline-none transition shadow-sm">
                         <button id="btn-ricerca" class="bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-6 py-4 rounded-xl font-bold text-xs uppercase transition active:scale-95 shadow-sm">Cerca</button>
                     </div>
                 </div>
@@ -257,39 +257,23 @@
             const isNumeric = !isNaN(cleanQuery.replace(/[-\s]/g, '')) && cleanQuery.replace(/[-\s]/g, '').length >= 10;
             const numericCode = cleanQuery.replace(/[-\s]/g, '');
 
-            let guessedTitle = cleanQuery;
-            let guessedAuthor = "";
-
-            if (!isNumeric) {
-                if (cleanQuery.includes(",")) {
-                    let parts = cleanQuery.split(",");
-                    guessedTitle = parts[0].trim();
-                    guessedAuthor = parts[1].trim();
-                } else if (cleanQuery.includes("-")) {
-                    let parts = cleanQuery.split("-");
-                    guessedTitle = parts[0].trim();
-                    guessedAuthor = parts.slice(1).join("-").trim();
-                }
-            }
-            
             try {
-                let targetUrl = "";
-                if (isNumeric) {
-                    targetUrl = `https://www.googleapis.com/books/v1/volumes?q=isbn:${numericCode}`;
-                } else {
-                    let q = encodeURIComponent(guessedTitle);
-                    if (guessedAuthor) q += `+inauthor:${encodeURIComponent(guessedAuthor)}`;
-                    targetUrl = `https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=1`;
-                }
+                // Modifica cruciale: chiediamo a Google i primi 5 risultati invece di 1 solo
+                let targetUrl = isNumeric 
+                    ? `https://www.googleapis.com/books/v1/volumes?q=isbn:${numericCode}`
+                    : `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(cleanQuery)}&maxResults=5`;
 
                 let res = await fetch(targetUrl);
                 let data = await res.json();
                 
                 if (data.items && data.items.length > 0) {
-                    const info = data.items[0].volumeInfo;
+                    // Trova il primo risultato che ha effettivamente un'immagine associata
+                    let bestMatch = data.items.find(item => item.volumeInfo && item.volumeInfo.imageLinks) || data.items[0];
+                    const info = bestMatch.volumeInfo;
+                    
                     tempLibro = {
-                        titolo: info.title || guessedTitle,
-                        autore: info.authors ? info.authors.join(", ") : guessedAuthor,
+                        titolo: info.title || cleanQuery,
+                        autore: info.authors ? info.authors.join(", ") : "",
                         isbn: info.industryIdentifiers ? info.industryIdentifiers[0].identifier : (isNumeric ? numericCode : "Non disponibile"),
                         copertinaUrl: info.imageLinks ? (info.imageLinks.thumbnail || info.imageLinks.smallThumbnail).replace("http://", "https://") : "",
                         stato: "Da leggere",
@@ -298,8 +282,8 @@
                     };
                 } else {
                     tempLibro = { 
-                        titolo: isNumeric ? "" : guessedTitle, 
-                        autore: guessedAuthor, 
+                        titolo: isNumeric ? "" : cleanQuery, 
+                        autore: "", 
                         isbn: isNumeric ? numericCode : "Non disponibile", 
                         copertinaUrl: isNumeric ? `https://covers.openlibrary.org/b/isbn/${numericCode}-M.jpg` : "", 
                         stato: "Da leggere", 
@@ -310,7 +294,7 @@
                 showConfirm();
             } catch (e) {
                 console.error(e);
-                tempLibro = { titolo: isNumeric ? "" : guessedTitle, autore: guessedAuthor, isbn: isNumeric ? numericCode : "Non disponibile", copertinaUrl: "", stato: "Da leggere", tipo: "libreria", riflessioni: "" };
+                tempLibro = { titolo: isNumeric ? "" : cleanQuery, autore: "", isbn: isNumeric ? numericCode : "Non disponibile", copertinaUrl: "", stato: "Da leggere", tipo: "libreria", riflessioni: "" };
                 showConfirm();
             } finally {
                 document.getElementById('stato-caricamento').classList.add('hidden');
