@@ -10,10 +10,9 @@
     <style>
         body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
         
-        /* BLOCCO MIRINO FOTOCAMERA CORRETTO E INGABBIATO */
         #container-scanner { height: 300px; position: relative; }
         #interactive.viewport video, #interactive.viewport canvas {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 1rem;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 12px;
         }
 
         .tab-btn.active { color: #4f46e5; border-bottom: 2px solid #4f46e5; }
@@ -83,11 +82,8 @@
                 <div id="avviso-non-trovato" class="w-full bg-amber-50 dark:bg-amber-950/20 text-amber-800 dark:text-amber-300 text-xs p-4 rounded-xl hidden border border-amber-200 dark:border-amber-900/40 text-left leading-relaxed space-y-3">
                     <div>
                         <span class="font-bold uppercase text-[10px] tracking-wider block mb-1">Codice non registrato online</span>
-                        Questo codice a barre non è nei database mondiali. Compila i dati a mano, oppure usa il pulsante per identificare il titolo su Google e cercalo manualmente.
+                        Nessun riscontro automatico trovato per questo codice a barre. Puoi completare l'inserimento digitando i dettagli manualmente.
                     </div>
-                    <button id="btn-google-fallback" target="_blank" class="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-3 rounded-lg text-[10px] uppercase tracking-wider text-center transition">
-                        Cerca codice su Google
-                    </button>
                 </div>
                 
                 <div class="flex gap-4">
@@ -184,7 +180,7 @@
     </nav>
 
     <div id="modal-conferma-codice" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4">
-        <div class="bg-white dark:bg-zinc-900 w-full max-w-sm rounded-2xl p-6 shadow-2xl transition-transform duration-200">
+        <div class="bg-white dark:bg-zinc-900 w-full max-w-sm rounded-2xl p-6 shadow-2xl">
             <h3 class="text-lg font-bold text-slate-900 dark:text-zinc-50 mb-2">Codice rilevato</h3>
             <p class="text-xs text-slate-500 dark:text-zinc-400 mb-6 leading-relaxed">Verifica che i numeri corrispondano esattamente a quelli stampati sul libro:</p>
             
@@ -237,7 +233,6 @@
             if(isScanning) stopScan();
         };
 
-        // Ricerca tradizionale robusta
         async function fetchBook(queryText) {
             document.getElementById('stato-caricamento').classList.remove('hidden');
             const cleanQuery = queryText.replace(/[-\s]/g, '').trim();
@@ -254,7 +249,7 @@
                 if (data.items && data.items.length > 0) {
                     const info = data.items[0].volumeInfo;
                     tempLibro = {
-                        titolo: info.title || "",
+                        titolo: info.title || queryText,
                         autore: info.authors ? info.authors.join(", ") : "",
                         isbn: info.industryIdentifiers ? info.industryIdentifiers[0].identifier : (isNumeric ? cleanQuery : "Non disponibile"),
                         copertinaUrl: info.imageLinks ? info.imageLinks.thumbnail.replace("http://", "https://") : "",
@@ -291,13 +286,9 @@
             document.getElementById('conf-isbn').innerText = "Riferimento: " + tempLibro.isbn;
             
             const avviso = document.getElementById('avviso-non-trovato');
-            const googleBtn = document.getElementById('btn-google-fallback');
             
             if(!tempLibro.titolo) {
                 avviso.classList.remove('hidden');
-                googleBtn.onclick = () => {
-                    window.open(`https://www.google.com/search?q=${tempLibro.isbn}`, '_blank');
-                };
             } else {
                 avviso.classList.add('hidden');
             }
@@ -420,7 +411,6 @@
             document.getElementById('stat-perc').innerText = perc + "%";
         }
 
-        // --- SCANNER E POPUP CONFERMA ---
         function startScan() {
             document.getElementById('container-scanner').classList.remove('hidden');
             Quagga.init({
@@ -457,7 +447,6 @@
                     lastCode = null;
                     count = 0;
                     
-                    // Mostra il popup di conferma
                     document.getElementById('scanned-code-display').innerText = code;
                     document.getElementById('modal-conferma-codice').classList.remove('hidden');
                 }
@@ -467,7 +456,6 @@
             }
         });
 
-        // Gestione bottoni del Popup
         document.getElementById('btn-modal-riprova').onclick = () => {
             document.getElementById('modal-conferma-codice').classList.add('hidden');
             startScan();
