@@ -254,60 +254,58 @@ async function fetchBook(queryText) {
     document.getElementById('stato-caricamento').classList.remove('hidden');
 
     const cleanQuery = queryText.trim();
-    const numericCode = cleanQuery.replace(/[-\s]/g, '');
-    const isNumeric = /^\d{10,13}$/.test(numericCode);
 
     try {
 
-        let testedQueries = [];
+        const variations = [];
 
-        if (isNumeric) {
-            testedQueries.push(`isbn:${numericCode}`);
-        } else {
-            const words = cleanQuery.split(" ");
+        // ✅ 1. query originale
+        variations.push(cleanQuery);
 
-            // ✅ PROVA 1: titolo breve + autore
-            if (words.length >= 2) {
-                const title = words[0];
-                const author = words.slice(1).join(" ");
-
-                testedQueries.push(`intitle:${title}+inauthor:${author}`);
-                testedQueries.push(`inauthor:${author}+${title}`);
-            }
-
-            // ✅ PROVA 2: query intera
-            testedQueries.push(cleanQuery);
-
-            // ✅ PROVA 3: solo titolo
-            testedQueries.push(`intitle:${cleanQuery}`);
+        // ✅ 2. inverti ordine parole
+        const words = cleanQuery.split(" ");
+        if (words.length > 1) {
+            variations.push(words.reverse().join(" "));
         }
 
-        let bestResults = [];
+        // ✅ 3. intitle + inauthor (prima parola titolo)
+        if (words.length > 1) {
+            const title = words[0];
+            const author = words.slice(1).join(" ");
+            variations.push(`intitle:${title} inauthor:${author}`);
+        }
 
-        // 🚀 PROVA TUTTE LE QUERY
-        for (let q of testedQueries) {
+        // ✅ 4. solo titolo
+        variations.push(`intitle:${cleanQuery}`);
+
+        let results = [];
+
+        // 🔁 PROVA TUTTE
+        for (let q of variations) {
+
             const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}&maxResults=10`;
+
             const res = await fetch(url);
             const data = await res.json();
 
             if (data.items && data.items.length > 0) {
-                bestResults = data.items;
+                results = data.items;
                 break;
             }
         }
 
-        if (bestResults.length > 0) {
-
-            // 🔥 SCELTA MIGLIORE
-            const bestMatch = pickBestBookMatch(bestResults, cleanQuery);
-            tempLibro = buildTempLibroFromGoogleItem(bestMatch, cleanQuery);
-
-        } else {
+        // ✅ TROVATO
+        if (results.length > 0) {
+            const best = pickBestBookMatch(results, cleanQuery);
+            tempLibro = buildTempLibroFromGoogleItem(best, cleanQuery);
+        } 
+        else {
+            // fallback
             tempLibro = {
                 titolo: cleanQuery,
                 autore: "",
-                isbn: isNumeric ? numericCode : "Non disponibile",
-                copertinaUrl: isNumeric ? getOpenLibraryCoverByIsbn(numericCode) : "",
+                isbn: "Non disponibile",
+                copertinaUrl: "",
                 stato: "Da leggere",
                 tipo: "libreria",
                 riflessioni: ""
@@ -322,7 +320,7 @@ async function fetchBook(queryText) {
         document.getElementById('stato-caricamento').classList.add('hidden');
     }
 }
-
+        
         function showConfirm() {
             document.getElementById('view-add').classList.add('hidden');
             document.getElementById('view-confirm').classList.remove('hidden');
