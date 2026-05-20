@@ -171,7 +171,6 @@
             if(['library', 'wishlist', 'stats'].includes(tab)) loadData();
         };
 
-        // MOTORE DI RICERCA OTTIMIZZATO PER CAMPI SEPARATI
         window.fetchBook = async (titleOrCode, authorText = "") => {
             document.getElementById('stato-caricamento').classList.remove('hidden');
             const cleanQuery = titleOrCode.trim();
@@ -183,23 +182,23 @@
                 if (isNumeric) {
                     qParam = `isbn:${numericCode}`;
                 } else {
-                    qParam = `intitle:${encodeURIComponent(cleanQuery)}`;
-                    if (authorText.trim()) {
-                        qParam += `+inauthor:${encodeURIComponent(authorText.trim())}`;
-                    }
+                    // Ricerca flessibile combinata per massimizzare la precisione di Google
+                    let combined = cleanQuery;
+                    if (authorText.trim()) combined += " " + authorText.trim();
+                    qParam = encodeURIComponent(combined);
                 }
 
-                let url = `https://www.googleapis.com/books/v1/volumes?q=${qParam}&maxResults=5`;
+                let url = `https://www.googleapis.com/books/v1/volumes?q=${qParam}&maxResults=10`;
                 let res = await fetch(url);
                 let data = await res.json();
                 
                 if (data.items && data.items.length > 0) {
-                    let bestMatch = data.items.find(item => item.volumeInfo && item.volumeInfo.imageLinks && item.volumeInfo.imageLinks.thumbnail) || data.items[0];
+                    let bestMatch = data.items.find(item => item.volumeInfo && item.volumeInfo.imageLinks && (item.volumeInfo.imageLinks.thumbnail || item.volumeInfo.imageLinks.smallThumbnail)) || data.items[0];
                     const info = bestMatch.volumeInfo;
                     
                     window.tempLibro = {
                         titolo: info.title || cleanQuery,
-                        autore: info.authors ? info.authors.join(", ") : authorText,
+                        autore: info.authors ? info.authors.join(", ") : (authorText || "Autore sconosciuto"),
                         isbn: info.industryIdentifiers ? info.industryIdentifiers[0].identifier : (isNumeric ? numericCode : "N/D"),
                         copertinaUrl: info.imageLinks ? (info.imageLinks.thumbnail || info.imageLinks.smallThumbnail).replace("http://", "https://") : "",
                         tipo: "libreria", stato: "Da leggere", riflessioni: "", valutazione: 0
@@ -207,7 +206,7 @@
                 } else {
                     window.tempLibro = { 
                         titolo: isNumeric ? "" : cleanQuery, 
-                        autore: authorText || "Autore Ignoto", 
+                        autore: authorText || "Autore sconosciuto", 
                         isbn: isNumeric ? numericCode : "N/D", 
                         copertinaUrl: isNumeric ? `https://covers.openlibrary.org/b/isbn/${numericCode}-M.jpg` : "", 
                         tipo: "libreria", stato: "Da leggere", riflessioni: "", valutazione: 0 
@@ -218,30 +217,31 @@
                 console.error(e);
                 window.tempLibro = { titolo: isNumeric ? "" : cleanQuery, autore: authorText, isbn: isNumeric ? numericCode : "N/D", copertinaUrl: "", tipo: "libreria", stato: "Da leggere", riflessioni: "", valutazione: 0 };
                 showConfirm();
-            } finally {
+            } else {
                 document.getElementById('stato-caricamento').classList.add('hidden');
             }
         };
 
-        // RECUPERO TARDEVO DELLA COPERTINA (Cover Fetcher dopo il salvataggio)
+        // CORREZIONE DEFINITIVA DEL FETCH COPERTINA
         window.searchCoverLater = async (id, titolo, autore) => {
-            let q = `intitle:${encodeURIComponent(titolo)}`;
+            let combinedSearch = titolo;
             if (autore && autore !== "Autore Ignoto" && autore !== "Autore sconosciuto") {
-                q += `+inauthor:${encodeURIComponent(autore)}`;
+                combinedSearch += " " + autore;
             }
             try {
-                let res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=3`);
+                let res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(combinedSearch)}&maxResults=10`);
                 let data = await res.json();
-                if (data.items) {
-                    let match = data.items.find(i => i.volumeInfo && i.volumeInfo.imageLinks && i.volumeInfo.imageLinks.thumbnail);
+                if (data.items && data.items.length > 0) {
+                    let match = data.items.find(i => i.volumeInfo && i.volumeInfo.imageLinks && (i.volumeInfo.imageLinks.thumbnail || i.volumeInfo.imageLinks.smallThumbnail));
                     if (match) {
-                        let url = match.volumeInfo.imageLinks.thumbnail.replace("http://", "https://");
+                        let links = match.volumeInfo.imageLinks;
+                        let url = (links.thumbnail || links.smallThumbnail).replace("http://", "https://");
                         await updateDoc(doc(db, "libri", id), { copertinaUrl: url });
                         loadData();
                         return;
                     }
                 }
-                alert("Nessuna immagine speculare trovata nell'archivio cloud.");
+                alert("Nessuna copertina speculare trovata nel cloud.");
             } catch (e) { console.error(e); }
         };
 
@@ -289,9 +289,8 @@
                 ? `<img src="${libro.copertinaUrl}" class="w-full h-full object-cover rounded-lg" onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden')"><div class="placeholder-cover w-full h-full hidden rounded-lg">${libro.titolo}</div>`
                 : `<div class="placeholder-cover w-full h-full rounded-lg text-[10px] flex flex-col justify-between">${libro.titolo}</div>`;
 
-            // Bottone integrato "Cerca Copertina" se mancante
             const latentSearchBtn = !hasCover 
-                ? `<button onclick="searchCoverLater('${libro.id}', '${libro.titolo.replace(/'/g, "\\'")}', '${libro.autore.replace(/'/g, "\\'")}')" class="text-[9px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 mt-1 block hover:underline">🔍 Cerca Copertina</button>` 
+                ? `<button onclick="searchCoverLater('${libro.id}', '${libro.titolo.replace(/'/g, "\\'")}', '${libro.autore.replace(/'/g, "\\'")}')" class="text-[9px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 mt-1 block hover:underline text-left">🔍 Cerca Copertina</button>` 
                 : '';
 
             let val = libro.valutazione || 0;
@@ -386,7 +385,6 @@
         };
         Quagga.onDetected((res) => { Quagga.stop(); document.getElementById('container-scanner').classList.add('hidden'); fetchBook(res.codeResult.code, ""); });
         
-        // INTERCETTAZIONE CAMPI SEPARATI ALL'INVIO
         document.getElementById('btn-ricerca').onclick = () => {
             const t = document.getElementById('input-titolo-manuale').value.trim();
             const a = document.getElementById('input-autore-manuale').value.trim();
