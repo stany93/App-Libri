@@ -250,56 +250,78 @@
             if(isScanning) stopScan();
         };
 
-        async function fetchBook(queryText) {
-            document.getElementById('stato-caricamento').classList.remove('hidden');
-            
-            const cleanQuery = queryText.trim();
-            const isNumeric = !isNaN(cleanQuery.replace(/[-\s]/g, '')) && cleanQuery.replace(/[-\s]/g, '').length >= 10;
-            const numericCode = cleanQuery.replace(/[-\s]/g, '');
-            
-            try {
-                // Lasciamo Google Books libero di fare fuzzy matching e correggere errori
-                let targetUrl = isNumeric 
-                    ? `https://www.googleapis.com/books/v1/volumes?q=isbn:${numericCode}`
-                    : `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(cleanQuery)}&maxResults=10`;
+async function fetchBook(queryText) {
+    document.getElementById('stato-caricamento').classList.remove('hidden');
 
-                let res = await fetch(targetUrl);
-                let data = await res.json();
-                
-                if (data.items && data.items.length > 0) {
-                    // Cerca il primo risultato che abbia una copertina, altrimenti usa il primo generico
-                    let bestMatch = data.items.find(item => item.volumeInfo && item.volumeInfo.imageLinks && item.volumeInfo.imageLinks.thumbnail) || data.items[0];
-                    const info = bestMatch.volumeInfo;
-                    
-                    tempLibro = {
-                        titolo: info.title || cleanQuery,
-                        autore: info.authors ? info.authors.join(", ") : "",
-                        isbn: info.industryIdentifiers ? info.industryIdentifiers[0].identifier : (isNumeric ? numericCode : "Non disponibile"),
-                        copertinaUrl: info.imageLinks ? (info.imageLinks.thumbnail || info.imageLinks.smallThumbnail).replace("http://", "https://") : "",
-                        stato: "Da leggere",
-                        tipo: "libreria",
-                        riflessioni: ""
-                    };
-                } else {
-                    tempLibro = { 
-                        titolo: isNumeric ? "" : cleanQuery, 
-                        autore: "", 
-                        isbn: isNumeric ? numericCode : "Non disponibile", 
-                        copertinaUrl: isNumeric ? `https://covers.openlibrary.org/b/isbn/${numericCode}-M.jpg` : "", 
-                        stato: "Da leggere", 
-                        tipo: "libreria",
-                        riflessioni: "" 
-                    };
-                }
-                showConfirm();
-            } catch (e) {
-                console.error(e);
-                tempLibro = { titolo: isNumeric ? "" : cleanQuery, autore: "", isbn: isNumeric ? numericCode : "Non disponibile", copertinaUrl: "", stato: "Da leggere", tipo: "libreria", riflessioni: "" };
-                showConfirm();
-            } finally {
-                document.getElementById('stato-caricamento').classList.add('hidden');
+    const cleanQuery = queryText.trim();
+    const numericCode = cleanQuery.replace(/[-\s]/g, '');
+    const isNumeric = /^\d{10,13}$/.test(numericCode);
+
+    try {
+
+        let testedQueries = [];
+
+        if (isNumeric) {
+            testedQueries.push(`isbn:${numericCode}`);
+        } else {
+            const words = cleanQuery.split(" ");
+
+            // ✅ PROVA 1: titolo breve + autore
+            if (words.length >= 2) {
+                const title = words[0];
+                const author = words.slice(1).join(" ");
+
+                testedQueries.push(`intitle:${title}+inauthor:${author}`);
+                testedQueries.push(`inauthor:${author}+${title}`);
+            }
+
+            // ✅ PROVA 2: query intera
+            testedQueries.push(cleanQuery);
+
+            // ✅ PROVA 3: solo titolo
+            testedQueries.push(`intitle:${cleanQuery}`);
+        }
+
+        let bestResults = [];
+
+        // 🚀 PROVA TUTTE LE QUERY
+        for (let q of testedQueries) {
+            const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}&maxResults=10`;
+            const res = await fetch(url);
+            const data = await res.json();
+
+            if (data.items && data.items.length > 0) {
+                bestResults = data.items;
+                break;
             }
         }
+
+        if (bestResults.length > 0) {
+
+            // 🔥 SCELTA MIGLIORE
+            const bestMatch = pickBestBookMatch(bestResults, cleanQuery);
+            tempLibro = buildTempLibroFromGoogleItem(bestMatch, cleanQuery);
+
+        } else {
+            tempLibro = {
+                titolo: cleanQuery,
+                autore: "",
+                isbn: isNumeric ? numericCode : "Non disponibile",
+                copertinaUrl: isNumeric ? getOpenLibraryCoverByIsbn(numericCode) : "",
+                stato: "Da leggere",
+                tipo: "libreria",
+                riflessioni: ""
+            };
+        }
+
+        showConfirm();
+
+    } catch (e) {
+        console.error(e);
+    } finally {
+        document.getElementById('stato-caricamento').classList.add('hidden');
+    }
+}
 
         function showConfirm() {
             document.getElementById('view-add').classList.add('hidden');
