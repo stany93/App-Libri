@@ -250,77 +250,57 @@
             if(isScanning) stopScan();
         };
 
-async function fetchBook(queryText) {
-    document.getElementById('stato-caricamento').classList.remove('hidden');
+        async function fetchBook(queryText) {
+            document.getElementById('stato-caricamento').classList.remove('hidden');
+            
+            const cleanQuery = queryText.trim();
+            const isNumeric = !isNaN(cleanQuery.replace(/[-\s]/g, '')) && cleanQuery.replace(/[-\s]/g, '').length >= 10;
+            const numericCode = cleanQuery.replace(/[-\s]/g, '');
+            
+            try {
+                // Lasciamo Google Books libero di fare fuzzy matching e correggere errori
+                let targetUrl = isNumeric 
+                    ? `https://www.googleapis.com/books/v1/volumes?q=isbn:${numericCode}`
+                    : `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(cleanQuery)}&maxResults=10`;
 
-    const cleanQuery = queryText.trim();
-
-    try {
-
-        const variations = [];
-
-        // ✅ 1. query originale
-        variations.push(cleanQuery);
-
-        // ✅ 2. inverti ordine parole
-        const words = cleanQuery.split(" ");
-        if (words.length > 1) {
-            variations.push(words.reverse().join(" "));
-        }
-
-        // ✅ 3. intitle + inauthor (prima parola titolo)
-        if (words.length > 1) {
-            const title = words[0];
-            const author = words.slice(1).join(" ");
-            variations.push(`intitle:${title} inauthor:${author}`);
-        }
-
-        // ✅ 4. solo titolo
-        variations.push(`intitle:${cleanQuery}`);
-
-        let results = [];
-
-        // 🔁 PROVA TUTTE
-        for (let q of variations) {
-
-            const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}&maxResults=10`;
-
-            const res = await fetch(url);
-            const data = await res.json();
-
-            if (data.items && data.items.length > 0) {
-                results = data.items;
-                break;
+                let res = await fetch(targetUrl);
+                let data = await res.json();
+                
+                if (data.items && data.items.length > 0) {
+                    // Cerca il primo risultato che abbia una copertina, altrimenti usa il primo generico
+                    let bestMatch = data.items.find(item => item.volumeInfo && item.volumeInfo.imageLinks && item.volumeInfo.imageLinks.thumbnail) || data.items[0];
+                    const info = bestMatch.volumeInfo;
+                    
+                    tempLibro = {
+                        titolo: info.title || cleanQuery,
+                        autore: info.authors ? info.authors.join(", ") : "",
+                        isbn: info.industryIdentifiers ? info.industryIdentifiers[0].identifier : (isNumeric ? numericCode : "Non disponibile"),
+                        copertinaUrl: info.imageLinks ? (info.imageLinks.thumbnail || info.imageLinks.smallThumbnail).replace("http://", "https://") : "",
+                        stato: "Da leggere",
+                        tipo: "libreria",
+                        riflessioni: ""
+                    };
+                } else {
+                    tempLibro = { 
+                        titolo: isNumeric ? "" : cleanQuery, 
+                        autore: "", 
+                        isbn: isNumeric ? numericCode : "Non disponibile", 
+                        copertinaUrl: isNumeric ? `https://covers.openlibrary.org/b/isbn/${numericCode}-M.jpg` : "", 
+                        stato: "Da leggere", 
+                        tipo: "libreria",
+                        riflessioni: "" 
+                    };
+                }
+                showConfirm();
+            } catch (e) {
+                console.error(e);
+                tempLibro = { titolo: isNumeric ? "" : cleanQuery, autore: "", isbn: isNumeric ? numericCode : "Non disponibile", copertinaUrl: "", stato: "Da leggere", tipo: "libreria", riflessioni: "" };
+                showConfirm();
+            } finally {
+                document.getElementById('stato-caricamento').classList.add('hidden');
             }
         }
 
-        // ✅ TROVATO
-        if (results.length > 0) {
-            const best = pickBestBookMatch(results, cleanQuery);
-            tempLibro = buildTempLibroFromGoogleItem(best, cleanQuery);
-        } 
-        else {
-            // fallback
-            tempLibro = {
-                titolo: cleanQuery,
-                autore: "",
-                isbn: "Non disponibile",
-                copertinaUrl: "",
-                stato: "Da leggere",
-                tipo: "libreria",
-                riflessioni: ""
-            };
-        }
-
-        showConfirm();
-
-    } catch (e) {
-        console.error(e);
-    } finally {
-        document.getElementById('stato-caricamento').classList.add('hidden');
-    }
-}
-        
         function showConfirm() {
             document.getElementById('view-add').classList.add('hidden');
             document.getElementById('view-confirm').classList.remove('hidden');
