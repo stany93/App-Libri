@@ -88,9 +88,18 @@
                 <button onclick="filterLib('Letto')" class="filter-btn px-4 py-2 text-[10px] font-bold uppercase tracking-widest rounded-full border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">Letto</button>
                 <button onclick="filterLib('Da rileggere')" class="filter-btn px-4 py-2 text-[10px] font-bold uppercase tracking-widest rounded-full border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">Da rileggere</button>
             </div>
-            <div class="flex justify-between items-center mb-6 border-b border-slate-100 dark:border-zinc-900 pb-3">
-                <p id="counter-libri" class="text-xs text-slate-400 font-medium">Caricamento...</p>
-                <select onchange="changeOrder(this.value)" class="text-[10px] font-bold uppercase tracking-widest outline-none bg-transparent text-indigo-600">
+            <div class="flex justify-between items-center mb-6 border-b border-slate-100 dark:border-zinc-900 pb-3 gap-2">
+                <p id="counter-libri" class="text-xs text-slate-400 font-medium flex-grow">Caricamento...</p>
+                <select onchange="changeRatingFilter(this.value)" class="text-[10px] font-bold uppercase tracking-widest outline-none bg-transparent text-amber-500 dark:text-amber-400 cursor-pointer">
+                    <option value="all">Tutti i voti</option>
+                    <option value="5">5 Stelle</option>
+                    <option value="4">4 Stelle</option>
+                    <option value="3">3 Stelle</option>
+                    <option value="2">2 Stelle</option>
+                    <option value="1">1 Stella</option>
+                    <option value="0">Nessun voto</option>
+                </select>
+                <select onchange="changeOrder(this.value)" class="text-[10px] font-bold uppercase tracking-widest outline-none bg-transparent text-indigo-600 dark:text-indigo-400 cursor-pointer">
                     <option value="data">Più recenti</option>
                     <option value="titolo">In ordine alfabetico</option>
                 </select>
@@ -128,7 +137,7 @@
 
         const db = getFirestore(initializeApp({ apiKey: "AIzaSyARnpN14sxR2I9mEsoHq1tmG8EIrqm_QPY", projectId: "app-libri-35839" }));
         
-        let currentLibri = [], currentFilter = "Tutti", currentOrder = "data";
+        let currentLibri = [], currentFilter = "Tutti", currentOrder = "data", currentRatingFilter = "all";
 
         window.switchTab = (tab) => {
             document.querySelectorAll('.tab-view').forEach(v => v.classList.add('hidden'));
@@ -264,6 +273,12 @@
         window.renderLibrary = () => {
             const container = document.getElementById('lista-libri');
             let filtered = currentLibri.filter(l => (l.tipo === 'libreria' || !l.tipo)).filter(l => currentFilter === "Tutti" || l.stato === currentFilter);
+            
+            // Logica filtro per valutazione attiva
+            if (currentRatingFilter !== "all") {
+                filtered = filtered.filter(l => (l.valutazione || 0) === parseInt(currentRatingFilter));
+            }
+            
             if(currentOrder === "titolo") filtered.sort((a,b) => a.titolo.localeCompare(b.titolo));
             document.getElementById('counter-libri').innerText = `${filtered.length} volumi`;
             container.innerHTML = filtered.map(l => generateCard(l, false)).join('');
@@ -282,6 +297,7 @@
             renderLibrary();
         };
 
+        window.changeRatingFilter = (r) => { currentRatingFilter = r; renderLibrary(); };
         window.changeOrder = (o) => { currentOrder = o; renderLibrary(); };
         window.updateNote = async (id, val) => { await updateDoc(doc(db, "libri", id), { riflessioni: val }); };
         window.updateStatus = async (id, val) => { await updateDoc(doc(db, "libri", id), { stato: val }); loadData(); };
