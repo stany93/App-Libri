@@ -44,9 +44,18 @@
                     <span class="text-[10px] font-bold text-slate-300 dark:text-zinc-600 uppercase tracking-widest">oppure</span>
                     <div class="h-[1px] bg-slate-200 dark:bg-zinc-800 flex-grow"></div>
                 </div>
+                
                 <div class="space-y-3">
-                    <input type="text" id="input-ricerca" placeholder="Titolo o Autore..." class="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 px-4 py-4 rounded-xl text-sm outline-none transition shadow-sm">
-                    <button id="btn-ricerca" class="w-full bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 py-4 rounded-xl font-bold text-xs uppercase transition shadow-sm">Cerca nel database</button>
+                    <label class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest">Inserimento Manuale / Ricerca</label>
+                    <div class="space-y-2">
+                        <input type="text" id="input-titolo-manuale" placeholder="Titolo del libro..." class="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 px-4 py-3.5 rounded-xl text-sm outline-none transition shadow-sm">
+                        <input type="text" id="input-autore-manuale" placeholder="Autore..." class="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 px-4 py-3.5 rounded-xl text-sm outline-none transition shadow-sm">
+                        <button id="btn-ricerca" class="w-full bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 py-4 rounded-xl font-bold text-xs uppercase transition shadow-sm">Cerca nel database</button>
+                    </div>
+                </div>
+
+                <div id="stato-caricamento" class="hidden text-center py-4">
+                    <span class="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest animate-pulse">Ricerca nel database...</span>
                 </div>
             </div>
         </section>
@@ -90,7 +99,7 @@
             </div>
             <div class="flex justify-between items-center mb-6 border-b border-slate-100 dark:border-zinc-900 pb-3 gap-2">
                 <p id="counter-libri" class="text-xs text-slate-400 font-medium flex-grow">Caricamento...</p>
-                <select onchange="changeRatingFilter(this.value)" class="text-[10px] font-bold uppercase tracking-widest outline-none bg-transparent text-amber-500 dark:text-amber-400 cursor-pointer">
+                <select onchange="changeRatingFilter(this.value)" class="text-[10px] font-bold uppercase tracking-widest outline-none bg-transparent text-amber-500 cursor-pointer">
                     <option value="all">Tutti i voti</option>
                     <option value="5">5 Stelle</option>
                     <option value="4">4 Stelle</option>
@@ -99,7 +108,7 @@
                     <option value="1">1 Stella</option>
                     <option value="0">Nessun voto</option>
                 </select>
-                <select onchange="changeOrder(this.value)" class="text-[10px] font-bold uppercase tracking-widest outline-none bg-transparent text-indigo-600 dark:text-indigo-400 cursor-pointer">
+                <select onchange="changeOrder(this.value)" class="text-[10px] font-bold uppercase tracking-widest outline-none bg-transparent text-indigo-600 cursor-pointer">
                     <option value="data">Più recenti</option>
                     <option value="titolo">In ordine alfabetico</option>
                 </select>
@@ -131,6 +140,19 @@
         <button onclick="switchTab('stats')" id="nav-stats" class="tab-btn text-[10px] font-bold uppercase tracking-widest py-2 text-slate-400 flex-1 text-center">Stats</button>
     </nav>
 
+    <div id="modal-conferma-codice" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-zinc-900 w-full max-w-sm rounded-2xl p-6 shadow-2xl">
+            <h3 class="text-lg font-bold text-slate-900 dark:text-zinc-50 mb-2">Codice rilevato</h3>
+            <div class="bg-slate-100 dark:bg-zinc-800 rounded-xl py-4 text-center mb-6">
+                <span id="scanned-code-display" class="text-2xl font-mono font-bold tracking-widest text-indigo-600 dark:text-indigo-400"></span>
+            </div>
+            <div class="flex gap-3">
+                <button id="btn-modal-riprova" class="flex-1 py-3 text-xs font-bold uppercase tracking-widest border border-slate-200 dark:border-zinc-700 rounded-xl text-slate-700 dark:text-zinc-300">Riprova</button>
+                <button id="btn-modal-cerca" class="flex-1 py-3 bg-indigo-600 text-white text-xs font-bold uppercase rounded-xl">Cerca</button>
+            </div>
+        </div>
+    </div>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
@@ -142,72 +164,115 @@
         window.switchTab = (tab) => {
             document.querySelectorAll('.tab-view').forEach(v => v.classList.add('hidden'));
             document.querySelectorAll('.tab-btn').forEach(b => { b.classList.remove('active', 'text-indigo-600', 'dark:text-indigo-400'); b.classList.add('text-slate-400'); });
-            
             const titles = { 'add': 'Nuovo Libro', 'library': 'La mia Libreria', 'wishlist': 'Lista Desideri', 'stats': 'Andamento' };
             document.getElementById('page-title').innerText = titles[tab];
-            
             document.getElementById(`view-${tab}`).classList.remove('hidden');
             document.getElementById(`nav-${tab}`).classList.add('active');
-            
             if(['library', 'wishlist', 'stats'].includes(tab)) loadData();
         };
 
-        window.fetchBook = async (queryText) => {
-            const cleanQuery = queryText.trim();
+        // MOTORE DI RICERCA OTTIMIZZATO PER CAMPI SEPARATI
+        window.fetchBook = async (titleOrCode, authorText = "") => {
+            document.getElementById('stato-caricamento').classList.remove('hidden');
+            const cleanQuery = titleOrCode.trim();
             const isNumeric = /^\d+$/.test(cleanQuery.replace(/[-\s]/g, ''));
             const numericCode = cleanQuery.replace(/[-\s]/g, '');
-
+            
             try {
-                let url = `https://www.googleapis.com/books/v1/volumes?q=${isNumeric ? 'isbn:'+numericCode : encodeURIComponent(cleanQuery)}&maxResults=5`;
+                let qParam = "";
+                if (isNumeric) {
+                    qParam = `isbn:${numericCode}`;
+                } else {
+                    qParam = `intitle:${encodeURIComponent(cleanQuery)}`;
+                    if (authorText.trim()) {
+                        qParam += `+inauthor:${encodeURIComponent(authorText.trim())}`;
+                    }
+                }
+
+                let url = `https://www.googleapis.com/books/v1/volumes?q=${qParam}&maxResults=5`;
                 let res = await fetch(url);
                 let data = await res.json();
                 
-                if (data.items) {
-                    let match = data.items.find(i => i.volumeInfo.imageLinks) || data.items[0];
+                if (data.items && data.items.length > 0) {
+                    let bestMatch = data.items.find(item => item.volumeInfo && item.volumeInfo.imageLinks && item.volumeInfo.imageLinks.thumbnail) || data.items[0];
+                    const info = bestMatch.volumeInfo;
+                    
                     window.tempLibro = {
-                        titolo: match.volumeInfo.title || cleanQuery,
-                        autore: match.volumeInfo.authors ? match.volumeInfo.authors.join(", ") : "Autore Ignoto",
-                        isbn: isNumeric ? numericCode : (match.volumeInfo.industryIdentifiers ? match.volumeInfo.industryIdentifiers[0].identifier : "N/D"),
-                        copertinaUrl: match.volumeInfo.imageLinks ? match.volumeInfo.imageLinks.thumbnail.replace("http://", "https://") : "",
-                        tipo: "libreria",
-                        stato: "Da leggere",
-                        riflessioni: "",
-                        valutazione: 0
+                        titolo: info.title || cleanQuery,
+                        autore: info.authors ? info.authors.join(", ") : authorText,
+                        isbn: info.industryIdentifiers ? info.industryIdentifiers[0].identifier : (isNumeric ? numericCode : "N/D"),
+                        copertinaUrl: info.imageLinks ? (info.imageLinks.thumbnail || info.imageLinks.smallThumbnail).replace("http://", "https://") : "",
+                        tipo: "libreria", stato: "Da leggere", riflessioni: "", valutazione: 0
                     };
                 } else {
-                    window.tempLibro = { titolo: cleanQuery, autore: "Autore Ignoto", isbn: isNumeric ? numericCode : "N/D", copertinaUrl: isNumeric ? `https://covers.openlibrary.org/b/isbn/${numericCode}-M.jpg` : "", tipo: "libreria", stato: "Da leggere", riflessioni: "", valutazione: 0 };
+                    window.tempLibro = { 
+                        titolo: isNumeric ? "" : cleanQuery, 
+                        autore: authorText || "Autore Ignoto", 
+                        isbn: isNumeric ? numericCode : "N/D", 
+                        copertinaUrl: isNumeric ? `https://covers.openlibrary.org/b/isbn/${numericCode}-M.jpg` : "", 
+                        tipo: "libreria", stato: "Da leggere", riflessioni: "", valutazione: 0 
+                    };
                 }
-                
-                document.getElementById('view-add').classList.add('hidden');
-                document.getElementById('view-confirm').classList.remove('hidden');
-                document.getElementById('conf-titolo').value = window.tempLibro.titolo;
-                document.getElementById('conf-autore').value = window.tempLibro.autore;
-                
-                const img = document.getElementById('conf-copertina');
-                const placeholder = document.getElementById('conf-placeholder');
-                if(window.tempLibro.copertinaUrl) {
-                    img.src = window.tempLibro.copertinaUrl;
-                    img.classList.remove('hidden');
-                    placeholder.classList.add('hidden');
-                } else {
-                    img.classList.add('hidden');
-                    placeholder.classList.remove('hidden');
-                }
-            } catch (e) { alert("Errore di connessione."); }
+                showConfirm();
+            } catch (e) {
+                console.error(e);
+                window.tempLibro = { titolo: isNumeric ? "" : cleanQuery, autore: authorText, isbn: isNumeric ? numericCode : "N/D", copertinaUrl: "", tipo: "libreria", stato: "Da leggere", riflessioni: "", valutazione: 0 };
+                showConfirm();
+            } finally {
+                document.getElementById('stato-caricamento').classList.add('hidden');
+            }
         };
 
-        document.getElementById('btn-ricerca').onclick = () => fetchBook(document.getElementById('input-ricerca').value);
-        
+        // RECUPERO TARDEVO DELLA COPERTINA (Cover Fetcher dopo il salvataggio)
+        window.searchCoverLater = async (id, titolo, autore) => {
+            let q = `intitle:${encodeURIComponent(titolo)}`;
+            if (autore && autore !== "Autore Ignoto" && autore !== "Autore sconosciuto") {
+                q += `+inauthor:${encodeURIComponent(autore)}`;
+            }
+            try {
+                let res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=3`);
+                let data = await res.json();
+                if (data.items) {
+                    let match = data.items.find(i => i.volumeInfo && i.volumeInfo.imageLinks && i.volumeInfo.imageLinks.thumbnail);
+                    if (match) {
+                        let url = match.volumeInfo.imageLinks.thumbnail.replace("http://", "https://");
+                        await updateDoc(doc(db, "libri", id), { copertinaUrl: url });
+                        loadData();
+                        return;
+                    }
+                }
+                alert("Nessuna immagine speculare trovata nell'archivio cloud.");
+            } catch (e) { console.error(e); }
+        };
+
+        function showConfirm() {
+            document.querySelectorAll('.tab-view').forEach(v => v.classList.add('hidden'));
+            document.getElementById('view-confirm').classList.remove('hidden');
+            document.getElementById('conf-titolo').value = window.tempLibro.titolo;
+            document.getElementById('conf-autore').value = window.tempLibro.autore;
+            
+            const img = document.getElementById('conf-copertina');
+            const placeholder = document.getElementById('conf-placeholder');
+            if(window.tempLibro.copertinaUrl) {
+                img.src = window.tempLibro.copertinaUrl;
+                img.classList.remove('hidden'); placeholder.classList.add('hidden');
+            } else {
+                img.classList.add('hidden'); placeholder.classList.remove('hidden');
+                placeholder.innerText = window.tempLibro.titolo || "Nuovo Libro";
+            }
+        }
+
         document.getElementById('btn-conferma-save').onclick = async () => {
-            window.tempLibro.titolo = document.getElementById('conf-titolo').value;
-            window.tempLibro.autore = document.getElementById('conf-autore').value;
+            window.tempLibro.titolo = document.getElementById('conf-titolo').value.trim();
+            window.tempLibro.autore = document.getElementById('conf-autore').value.trim();
             window.tempLibro.tipo = document.getElementById('conf-tipo').value;
             window.tempLibro.stato = document.getElementById('conf-stato').value;
-            window.tempLibro.riflessioni = document.getElementById('conf-riflessioni').value;
+            window.tempLibro.riflessioni = document.getElementById('conf-riflessioni').value.trim();
             window.tempLibro.createdAt = new Date();
             
             await addDoc(collection(db, "libri"), window.tempLibro);
-            document.getElementById('input-ricerca').value = '';
+            document.getElementById('input-titolo-manuale').value = '';
+            document.getElementById('input-autore-manuale').value = '';
             switchTab(window.tempLibro.tipo === 'desideri' ? 'wishlist' : 'library');
         };
 
@@ -215,15 +280,19 @@
             const q = query(collection(db, "libri"), orderBy("createdAt", "desc"));
             const snap = await getDocs(q);
             currentLibri = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-            renderLibrary();
-            renderWishlist();
-            updateStats();
+            renderLibrary(); renderWishlist(); updateStats();
         };
 
         function generateCard(libro, isWishlist) {
-            const coverContent = libro.copertinaUrl 
+            const hasCover = libro.copertinaUrl && libro.copertinaUrl.trim() !== "";
+            const coverContent = hasCover 
                 ? `<img src="${libro.copertinaUrl}" class="w-full h-full object-cover rounded-lg" onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden')"><div class="placeholder-cover w-full h-full hidden rounded-lg">${libro.titolo}</div>`
-                : `<div class="placeholder-cover w-full h-full rounded-lg">${libro.titolo}</div>`;
+                : `<div class="placeholder-cover w-full h-full rounded-lg text-[10px] flex flex-col justify-between">${libro.titolo}</div>`;
+
+            // Bottone integrato "Cerca Copertina" se mancante
+            const latentSearchBtn = !hasCover 
+                ? `<button onclick="searchCoverLater('${libro.id}', '${libro.titolo.replace(/'/g, "\\'")}', '${libro.autore.replace(/'/g, "\\'")}')" class="text-[9px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 mt-1 block hover:underline">🔍 Cerca Copertina</button>` 
+                : '';
 
             let val = libro.valutazione || 0;
             let starsHtml = '';
@@ -232,10 +301,10 @@
             }
 
             const bottomActions = isWishlist 
-                ? `<button onclick="moveToLibrary('${libro.id}')" class="w-full mt-2 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest border border-indigo-100 transition active:scale-95">Sposta in Libreria</button>`
+                ? `<button onclick="moveToLibrary('${libro.id}')" class="w-full mt-2 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest border border-indigo-100 dark:border-indigo-500/20 transition active:scale-95">Sposta in Libreria</button>`
                 : `<div class="flex justify-between items-center pt-1 mt-2 border-t border-slate-100 dark:border-zinc-800">
                     <span class="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${libro.stato === 'Letto' ? 'bg-emerald-50 text-emerald-700' : libro.stato === 'In lettura' ? 'bg-violet-50 text-violet-700' : 'bg-slate-100 text-slate-500'}">${libro.stato}</span>
-                    <select onchange="updateStatus('${libro.id}', this.value)" class="text-[9px] font-bold uppercase tracking-wider bg-slate-50 dark:bg-zinc-800 rounded-lg px-2 py-1.5 outline-none border-none cursor-pointer">
+                    <select onchange="updateStatus('${libro.id}', this.value)" class="text-[9px] font-bold uppercase tracking-wider bg-slate-50 dark:bg-zinc-800 rounded-lg px-2 py-1.5 outline-none border-none cursor-pointer text-slate-600 dark:text-zinc-300">
                         <option value="Da leggere" ${libro.stato === 'Da leggere' ? 'selected' : ''}>Da leggere</option>
                         <option value="In lettura" ${libro.stato === 'In lettura' ? 'selected' : ''}>In lettura</option>
                         <option value="Letto" ${libro.stato === 'Letto' ? 'selected' : ''}>Letto</option>
@@ -245,17 +314,20 @@
 
             return `
                 <div class="flex gap-5 items-start bg-white dark:bg-zinc-900/40 border border-slate-100 dark:border-zinc-900 p-4 rounded-2xl shadow-xs">
-                    <div class="w-20 h-28 flex-shrink-0 bg-slate-50 rounded-lg overflow-hidden border border-slate-100 dark:border-zinc-800">${coverContent}</div>
+                    <div class="w-20 h-28 flex-shrink-0 bg-slate-50 dark:bg-zinc-950 rounded-lg overflow-hidden border border-slate-100 dark:border-zinc-800 relative">
+                        ${coverContent}
+                    </div>
                     <div class="flex-grow space-y-2 min-w-0">
                         <div class="flex justify-between items-start">
                             <div class="min-w-0">
                                 <h4 class="text-sm font-bold truncate pr-4 text-slate-900 dark:text-zinc-50">${libro.titolo}</h4>
                                 <p class="text-xs text-slate-400 truncate mt-0.5">${libro.autore}</p>
+                                ${latentSearchBtn}
                             </div>
                             <button onclick="deleteLib('${libro.id}')" class="text-slate-300 hover:text-rose-500 transition p-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
                         </div>
                         <div class="bg-slate-50 dark:bg-zinc-950 p-2 rounded-xl border border-slate-100 dark:border-zinc-900">
-                            <textarea onchange="updateNote('${libro.id}', this.value)" class="w-full bg-transparent text-[11px] text-slate-500 border-none outline-none resize-none leading-relaxed" rows="2" placeholder="Tocca qui per scrivere note...">${libro.riflessioni || ""}</textarea>
+                            <textarea onchange="updateNote('${libro.id}', this.value)" class="w-full bg-transparent text-[11px] text-slate-500 dark:text-zinc-400 border-none outline-none resize-none leading-relaxed" rows="2" placeholder="Tocca qui per scrivere note...">${libro.riflessioni || ""}</textarea>
                         </div>
                         <div class="flex items-center justify-between pt-1">
                             <div class="flex items-center gap-2">
@@ -273,12 +345,7 @@
         window.renderLibrary = () => {
             const container = document.getElementById('lista-libri');
             let filtered = currentLibri.filter(l => (l.tipo === 'libreria' || !l.tipo)).filter(l => currentFilter === "Tutti" || l.stato === currentFilter);
-            
-            // Logica filtro per valutazione attiva
-            if (currentRatingFilter !== "all") {
-                filtered = filtered.filter(l => (l.valutazione || 0) === parseInt(currentRatingFilter));
-            }
-            
+            if (currentRatingFilter !== "all") filtered = filtered.filter(l => (l.valutazione || 0) === parseInt(currentRatingFilter));
             if(currentOrder === "titolo") filtered.sort((a,b) => a.titolo.localeCompare(b.titolo));
             document.getElementById('counter-libri').innerText = `${filtered.length} volumi`;
             container.innerHTML = filtered.map(l => generateCard(l, false)).join('');
@@ -317,7 +384,14 @@
             document.getElementById('container-scanner').classList.toggle('hidden');
             Quagga.init({ inputStream: { name: "Live", type: "LiveStream", target: document.querySelector('#interactive'), constraints: { facingMode: "environment" } }, decoder: { readers: ["ean_reader"] } }, (e) => { if(!e) Quagga.start(); });
         };
-        Quagga.onDetected((res) => { Quagga.stop(); document.getElementById('container-scanner').classList.add('hidden'); fetchBook(res.codeResult.code); });
+        Quagga.onDetected((res) => { Quagga.stop(); document.getElementById('container-scanner').classList.add('hidden'); fetchBook(res.codeResult.code, ""); });
+        
+        // INTERCETTAZIONE CAMPI SEPARATI ALL'INVIO
+        document.getElementById('btn-ricerca').onclick = () => {
+            const t = document.getElementById('input-titolo-manuale').value.trim();
+            const a = document.getElementById('input-autore-manuale').value.trim();
+            if(t.length > 0 || a.length > 0) fetchBook(t, a);
+        };
     </script>
 </body>
 </html>
