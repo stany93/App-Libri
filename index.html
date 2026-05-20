@@ -182,7 +182,6 @@
                 if (isNumeric) {
                     qParam = `isbn:${numericCode}`;
                 } else {
-                    // Ricerca flessibile combinata per massimizzare la precisione di Google
                     let combined = cleanQuery;
                     if (authorText.trim()) combined += " " + authorText.trim();
                     qParam = encodeURIComponent(combined);
@@ -217,12 +216,11 @@
                 console.error(e);
                 window.tempLibro = { titolo: isNumeric ? "" : cleanQuery, autore: authorText, isbn: isNumeric ? numericCode : "N/D", copertinaUrl: "", tipo: "libreria", stato: "Da leggere", riflessioni: "", valutazione: 0 };
                 showConfirm();
-            } else {
+            } finally {
                 document.getElementById('stato-caricamento').classList.add('hidden');
             }
         };
 
-        // CORREZIONE DEFINITIVA DEL FETCH COPERTINA
         window.searchCoverLater = async (id, titolo, autore) => {
             let combinedSearch = titolo;
             if (autore && autore !== "Autore Ignoto" && autore !== "Autore sconosciuto") {
